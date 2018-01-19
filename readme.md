@@ -11,7 +11,7 @@ Particularly, in macOS, if you install the compiler suite in /usr/local/ you hav
 	$ cd /usr/local/lib/gcc/ba-elf/
 	$ ln -s /usr/local/ba-elf/bin/as
 ```
-Also include dirs do not seem to be properly managed, as the compiler won't find <stdint.h>, so I hardcoded its location in the Makefile (if someone could improve on this it would be perfect!)
+Also include dirs do not seem to be properly managed, as the compiler won't find <stdint.h>, I hardcoded its location in the Makefile (if someone could improve on this it would be perfect!)
 Also LinkTimeOptimization doesn't work on macOS, so it is forcefully disabled in the Makefile.
 
 You can use the latest version of [JennicModuleProgrammer](https://github.com/Jerome-PS/JennicModuleProgrammer) in order to flash you JN5169 device.
@@ -21,11 +21,11 @@ You can download NXP's Beyond Studio in order to compile the source code. In ecl
 You can then use the programmer integrated in the IDE. Do not use any other programmer provided by NXP, because they do not support JN5169 (at least none that I could try out).
 
 ## Precompiled binary
-There is a precompiled binary in the [bin folder]().
+There is a precompiled binary in the [bin folder](https://github.com/Jerome-PS/JN516xSniffer/tree/master/bin).
 
 # Interfacing to Wireshark
-~~ Put the zb.lua Wireshark plugin in your ~/.wireshark/plugins folder. ~~
-~~ If you use WiresharkPortable, copy the script in WiresharkPortable\App\Wireshark\plugins. ~~
+~~Put the zb.lua Wireshark plugin in your ~/.wireshark/plugins folder.
+If you use WiresharkPortable, copy the script in WiresharkPortable\App\Wireshark\plugins.~~
 
 ## Using on macOS or Linux
 If you are running Linux or macOS, you will have to create a pipe:
@@ -50,8 +50,8 @@ python Sniff.py COM3 C:\Users\snif\Downloads\WiresharkPortable\WiresharkPortable
 ## General usage
 You must send a start command in order to initialize Wireshark and the sniffer device and subsequently get packets. Use the ZB menu.
 ![ZB menu](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/WS_menu_ZB.png)
-Please make sure to select te correct channel. The Sniffer will send you a dummy frame to indicate the current channel every time you change it.
-![ZB dialog]()
+Please make sure to select the correct channel, or you won't capture any frames. The Sniffer will send you a dummy frame to indicate the current channel every time you change it.
+![ZB dialog](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/WS_dialog_Options.png)
 
 # Using the GUI to set the preferences
 ![Preferences menu](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/WS_menu.png)
