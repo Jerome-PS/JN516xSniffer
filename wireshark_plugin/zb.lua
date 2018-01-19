@@ -1,25 +1,4 @@
 do
---	if gui_enabled() then
---	   local splash = TextWindow.new("Hello!");
---	   splash:set("This time wireshark has been enhanced with a useless feature.\n")
---	   splash:append("Go to 'Tools->Lua Dialog Test' and check it out!")
---	end
---local chans_freqs_enum = { {"2.405 GHz"},
---                            {"2.410 GHz"},
---                            {"2.415 GHz"},
---                            {"2.420 GHz\0"},
---                            {"2.425 GHz\0"},
---                            {"2.430 GHz\0"},
---                            {"2.435 GHz\0"},
---                            {"2.440 GHz\0"},
---                            {"2.445 GHz\0"},
---                            {"2.450 GHz\0"},
- --                           {"2.455 GHz\0"},
---                            {"2.460 GHz\0"},
---                            {"2.465 GHz\0"},
---                            {"2.470 GHz\0"},
---                            {"2.475 GHz\0"},
---                            {"2.480 GHz\0"}};
 
 	local dprint = function(...)
 		print(table.concat({"Lua:", ...}," "))
@@ -62,29 +41,10 @@ do
 			local subtree = root:add(p_zbparams104,buf:range(0,pktlen))
 			do_dissect(buf,pkt,subtree)
 		end
-
---		local ptr = 0
---		while(ptr<buf:len()) do
---			ptr = ptr + do_frame(buf(ptr,buf:len()-ptr):tvb(),pkt,root)
---		end
-
---                local proto_id = buf(0,1):uint()
-
---                local dissector = protos[proto_id]
-
---                if dissector ~= nil then
---                        dissector:call(buf(2):tvb(),pkt,root)
---                elseif proto_id < 2 then
---                        tbl:add(f_text,buf(2))
---                        -- pkt.cols.info:set(buf(2,buf:len() - 3):string())
---                else
---                        data_dis:call(buf(2):tvb(),pkt,root)
---                end
-
     end
 
     function p_zbparams127.dissector(buf,pkt,root)
---		dprint("[0:2]=" .. buf(0,2):uint())
+
 		if (buf:len() < 2) or (buf(0,2):uint() ~= 0x0700) then
 			orig127:call(buf,pkt,root)
 		else
@@ -96,7 +56,7 @@ do
 
 	local default_settings =
 	{
-		comport  = "/dev/ttyUSB1",
+		comport  = '\\.\pipe\wiresharkTx',
 		channel  = 20
 	}
 
@@ -143,12 +103,7 @@ do
 
 	local function dialog_menu()
 		local function dialog_func(portname,channel)
---		    local win = TextWindow.new("ZigBee configuration");
---		    win:set(person)
---		    win:append(" with " .. eyes .." eyes and")
---		    win:append(" " .. hair .. " hair.");
-			
---			local portname = "/dev/ttyUSB0"
+
 			if portname == "" then 
 				portname = default_settings.comport
 			else
@@ -168,11 +123,7 @@ do
 		local portname = default_settings.comport
 		local channel  = default_settings.channel
 		new_dialog("ZB Config",dialog_func,"Serial port (blank is " .. portname .. ")","Channel (blank is " .. channel .. ")")
---		dprint("About to open file...")
---		local com = assert(io.open(portname, "w"))
---		com:write("C:25\n")
---		com:close()
---		dprint("Closed file...")
+
 	end
 
 	local function zbstart()
@@ -200,38 +151,3 @@ do
 	register_menu("ZB/ZB Test",zbtest,MENU_TOOLS_UNSORTED)
 end
 
-------------------------------------------------------------------------
--- This Example will add a menu "Lua Dialog Test" under the Tools menu, 
--- which when selected will pop a dialog prompting the user for input 
--- that when accepted will pop a window with a result.
-
---if gui_enabled() then
---   local splash = TextWindow.new("Hello!");
---   splash:set("This time wireshark has been enhanced with a useless feature.\n")
---   splash:append("Go to 'Tools->Lua Dialog Test' and check it out!")
---end
---local function dialog_menu()
---    local function dialog_func(person,eyes,hair)
---        local win = TextWindow.new("The Person");
---        win:set(person)
---        win:append(" with " .. eyes .." eyes and")
---        win:append(" " .. hair .. " hair.");
---    end
-
---    new_dialog("Dialog Test",dialog_func,"A Person","Eyes","Hair")
---end
-
--- optional 3rd parameter to register_menu. 
--- See http://www.wireshark.org/docs/wsug_html_chunked/wsluarm_modules.html 
--- If omitted, defaults to MENU_STAT_GENERIC. Other options include:
--- MENU_STAT_UNSORTED (Statistics), 
--- MENU_STAT_GENERIC (Statistics, first section), 
--- MENU_STAT_CONVERSATION (Statistics/Conversation List), 
--- MENU_STAT_ENDPOINT (Statistics/Endpoint List), 
--- MENU_STAT_RESPONSE (Statistics/Service Response Time), 
--- MENU_STAT_TELEPHONY (Telephony), 
--- MENU_ANALYZE_UNSORTED (Analyze), 
--- MENU_ANALYZE_CONVERSATION (Analyze/Conversation Filter), 
--- MENU_TOOLS_UNSORTED (Tools)
-
---register_menu("Lua Dialog Test",dialog_menu,MENU_TOOLS_UNSORTED)
