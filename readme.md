@@ -24,7 +24,7 @@ You can then use the programmer integrated in the IDE. Do not use any other prog
 There is a precompiled binary in the [bin folder](https://github.com/Jerome-PS/JN516xSniffer/tree/master/bin).
 
 # Interfacing to Wireshark
-~~Put the zb.lua Wireshark plugin in your ~/.wireshark/plugins folder.
+~~Put the zb.lua Wireshark plugin in your $(HOME)/.wireshark/plugins folder.
 If you use WiresharkPortable, copy the script in WiresharkPortable\App\Wireshark\plugins.~~
 
 ## Using on macOS or Linux
