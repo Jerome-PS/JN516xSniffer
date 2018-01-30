@@ -63,7 +63,7 @@ python Sniff.py COM3 C:\Users\snif\Downloads\WiresharkPortable\WiresharkPortable
 ```
 
 ## General usage
-You must send a start command in order to initialize Wireshark and the sniffer device and subsequently get packets. Use the ZB menu.
+You must send a start command in order to initialize Wireshark and the sniffer device and subsequently get packets. Use the ZB menu. *You will not see anything in Wireshark until you send the start command using the Tools/ZB/ZB Start menu command.*
 ![ZB menu](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/WS_menu_ZB.png)
 Please make sure to select the correct channel, or you won't capture any frames. The Sniffer will send you a dummy frame to indicate the current channel every time you change it.
 ![ZB dialog](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/WS_dialog_Options.png)
@@ -74,7 +74,7 @@ Please make sure to select the correct channel, or you won't capture any frames.
 Note that changing the parameters in this dialog will try and send an update to the MCU.
 
 # Acknowledgements
-This project is based on [work](https://github.com/KiwiHC16/ZigBeeSniffer) from @kiwiHC16. He also helped me debug this documentation and a few version incompatibilities.
+This project is based on [work](https://github.com/KiwiHC16/ZigBeeSniffer) from @KiwiHC16 . He also helped me debug this documentation and a few version incompatibilities.
 
 # Troubleshooting
 Wireshark might get confused if your MCU sends data before Wireshark has been initialised properly. To avoid this, please reset your MCU and ask it to send data with the ZB/start menu.
