@@ -33,9 +33,19 @@ If you are running Linux or macOS, you will have to create a pipe:
 ```
 mkfifo /tmp/sharkfifo
 ```
+On Linux, you will need to be in the dialout group, in order to have enough access rights to access the serial port.
+
 And then route data from the serial port, passing the serial port for commands as a parameter and optionally the channel number (change *comport* and *channel* as needed):
 ```
 wireshark -k -i /tmp/sharkfifo -X lua_script:zb.lua -X lua_script1:comport=/dev/cu.usbserial -X lua_script1:channel=25 &
+```
+Sadly here we have a small difference between macOS and Linux (notice capital letter F or small print f)!
+This is the Linux version:
+```
+stty -F /dev/ttyUSB0 38400 raw & cat /dev/ttyUSB0 > /tmp/sharkfifo
+```
+This is the macOS version:
+```
 stty -f /dev/cu.usbserial 38400 raw & cat /dev/cu.usbserial > /tmp/sharkfifo
 ```
 
