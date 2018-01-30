@@ -37,14 +37,16 @@ typedef struct pcap_hdr_s {
         uint32_t sigfigs;        /* accuracy of timestamps */
         uint32_t snaplen;        /* max length of captured packets, in octets */
         uint32_t network;        /* data link type */
-} pcap_hdr_t __attribute__((packed));
+} pcap_hdr_t;
+//} __attribute__((packed)) pcap_hdr_t;
 
 typedef struct pcaprec_hdr_s {
         uint32_t ts_sec;         /* timestamp seconds */
         uint32_t ts_usec;        /* timestamp microseconds */
         uint32_t incl_len;       /* number of octets of packet saved in file */
         uint32_t orig_len;       /* actual length of packet */
-} pcaprec_hdr_t __attribute__((packed));
+} pcaprec_hdr_t;
+//} __attribute__((packed)) pcaprec_hdr_t;
 
 /****************************************************************************/
 /***        Local Variables                                               ***/
@@ -100,20 +102,24 @@ PUBLIC void AppColdStart(void)
 	uint32 u32JPT_Ver = 0;(void)u32JPT_Ver;
 	uint32 u32JPT_RadioModes = 0;(void)u32JPT_RadioModes;
 	uint32 u32Chip_Id = 0;(void)u32Chip_Id;
+#if (defined JENNIC_CHIP_JN5169)
 	uint32 u32RadioParamVersion;
+#endif
 	uint8 u8Channel = 0;
 	uint8 u8Channelsave = 0;
-    tsJPT_PT_Packet sPacket;
+	tsJPT_PT_Packet sPacket;
 	char bCharBuffer[64] = "";
 	int iCharBufferPtr = 0;
 
-    /* Turn off debugger */
-    *(volatile uint32 *)0x020000a0 = 0;
+	/* Turn off debugger */
+	*(volatile uint32 *)0x020000a0 = 0;
 
-    vAHI_WatchdogStop();
+	vAHI_WatchdogStop();
 
-    u32JPT_Ver = u32JPT_Init();                 /* initialise production test API */
+	u32JPT_Ver = u32JPT_Init();                 /* initialise production test API */
+#if (defined JENNIC_CHIP_JN5169)
 	vJPT_GetRadioConfig(&u32RadioParamVersion);
+#endif
 
 	u32AHI_Init();                              /* initialise hardware API */
 
@@ -122,46 +128,48 @@ PUBLIC void AppColdStart(void)
 
     /* set up the tick timer, we'll use it for timestamps */
 	vAHI_TickTimerConfigure(E_AHI_TICK_TIMER_DISABLE);
-    vAHI_TickTimerInit((void*)TickTimer_Cb);
+	vAHI_TickTimerInit((void*)TickTimer_Cb);
 	vAHI_TickTimerWrite(0x00000000);
-    vAHI_TickTimerInterval(16000000);							// 1Hz
+	vAHI_TickTimerInterval(16000000);							// 1Hz
 	vAHI_TickTimerIntEnable(TRUE);
-    vAHI_TickTimerConfigure(E_AHI_TICK_TIMER_RESTART);
+	vAHI_TickTimerConfigure(E_AHI_TICK_TIMER_RESTART);
 
-    vUartInit(UART_TO_PC, BAUD_RATE, au8UartTxBuffer, sizeof(au8UartTxBuffer), au8UartRxBuffer, sizeof(au8UartRxBuffer));/* uart for user interface */
+	vUartInit(UART_TO_PC, BAUD_RATE, au8UartTxBuffer, sizeof(au8UartTxBuffer), au8UartRxBuffer, sizeof(au8UartRxBuffer));/* uart for user interface */
 
-    vInitPrintf((void*)vPutC);
+	vInitPrintf((void*)vPutC);
 
 #ifdef XIAMO_SMART_BUTTON
-    vAHI_DioSetPullup(~MAIN_PIN_BIT, MAIN_PIN_BIT);  /* turn all pullups on except for DIO16 which is big button input      */
+	vAHI_DioSetPullup(~MAIN_PIN_BIT, MAIN_PIN_BIT);  /* turn all pullups on except for DIO16 which is big button input      */
 	vAHI_DioSetDirection(0x00000000, LED_PIN_BIT);		// Set DIO11 as output (LED)
 #else
-    vAHI_DioSetPullup(0xffffffff, 0x00000000);  /* turn all pullups on      */
+	vAHI_DioSetPullup(0xffffffff, 0x00000000);  /* turn all pullups on      */
 #endif
 
-    /* read Chip_ID register */
-    u32Chip_Id= READ_REG32(0x020000fc);
+	/* read Chip_ID register */
+	u32Chip_Id= READ_REG32(0x020000fc);
 
-    u32RadioMode = E_JPT_MODE_LOPOWER;
+	u32RadioMode = E_JPT_MODE_LOPOWER;
 	u32ModuleRadioMode = E_JPT_MODE_LOPOWER;
 	u8TxPowerAdj = 0;
 	u8Attenuator3dB = 0;
+#ifdef RXPOWERADJUST_SUPPORT
 	vJPT_SetMaxInputLevel(E_MAX_INP_LEVEL_10dB);
+#endif	//def RXPOWERADJUST_SUPPORT
 
-    /* enable protocol */
-    bJPT_RadioInit(u32RadioMode);
+	/* enable protocol */
+	bJPT_RadioInit(u32RadioMode);
 
-    /* force channel change in bJPT_PacketRx */
-    u8Channel = u8JPT_RadioGetChannel();
-    if (u8Channel != STARTUP_CHANNEL){
-    	bJPT_PacketRx(STARTUP_CHANNEL, &sPacket);
-    }else{
-    	bJPT_PacketRx(11, &sPacket);
-	   	bJPT_PacketRx(STARTUP_CHANNEL, &sPacket);
-    }
-    u8Channel = u8JPT_RadioGetChannel();
+	/* force channel change in bJPT_PacketRx */
+	u8Channel = u8JPT_RadioGetChannel();
+	if (u8Channel != STARTUP_CHANNEL){
+		bJPT_PacketRx(STARTUP_CHANNEL, &sPacket);
+	}else{
+		bJPT_PacketRx(11, &sPacket);
+		bJPT_PacketRx(STARTUP_CHANNEL, &sPacket);
+	}
+	u8Channel = u8JPT_RadioGetChannel();
 
-    bJPT_RadioSetChannel(u8Channel);
+	bJPT_RadioSetChannel(u8Channel);
 
 	while(1){
         if ((u8Channel != u8Channelsave) && g_iWSDumpStatus > 0){
@@ -354,10 +362,30 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 
 /* ========================== Analyze Received Packet ==============================================*/
 	if (psPacket->bPacketGood) {
-		if(psPacket->u16FrameControl & 1 << 6){ bIntraPan = TRUE; }
+	
+//	IEEE 802.15.4 specification Section 5.2.1.1
+// Bits 
+//	 0- 2: Frame type
+//			000	Beacon
+//			001 Data
+//			010 Acknowledge
+//			011 MAC command
+//			1xx Reserved
+//			111 Used to communicate with Wireshark lua script
+//	    3: Security Enabled
+//	    4: Frame Pending
+//	    5: AR (Acknowledge Request)
+//	    6: PAN ID Compression
+//	 7- 9: Reserved
+//	10-11: Dest. Addressing Mode
+//			
+//	12-13: Frame version
+//	14-15: Source Addressing Mode
+	
+		if((psPacket->u16FrameControl >> 6) & 1){ bIntraPan = TRUE; }
 
 		/* Source addressing mode */
-		switch((psPacket->u16FrameControl & 3 << 14) >> 14){
+		switch((psPacket->u16FrameControl >> 14) & 3){
 
 			/* PAN id and address field not present */
 			case 0:

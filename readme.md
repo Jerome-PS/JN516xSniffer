@@ -29,11 +29,15 @@ You can then use the programmer integrated in the IDE. Do not use any other prog
 If you use WiresharkPortable, copy the script in WiresharkPortable\App\Wireshark\plugins.~~
 
 ## Using on macOS or Linux
+On Linux, you will need to be in the dialout group, in order to have enough access rights to access the serial port, as well as in the wireshark group for executing pcap:
+```
+sudo usermod -a -G dialout $USER
+sudo usermod -a -G wireshark $USER
+```
 If you are running Linux or macOS, you will have to create a pipe:
 ```
 mkfifo /tmp/sharkfifo
 ```
-On Linux, you will need to be in the dialout group, in order to have enough access rights to access the serial port.
 
 And then route data from the serial port, passing the serial port for commands as a parameter and optionally the channel number (change *comport* and *channel* as needed):
 ```
@@ -67,7 +71,11 @@ Please make sure to select the correct channel, or you won't capture any frames.
 # Using the GUI to set the preferences
 ![Preferences menu](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/WS_menu.png)
 ![Preferences dialog](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/WS_dialog.png) 
+Note that changing the parameters in this dialog will try and send an update to the MCU.
 
 # Acknowledgements
-This project is based on [work](https://github.com/KiwiHC16/ZigBeeSniffer) from @kiwiHC16.
+This project is based on [work](https://github.com/KiwiHC16/ZigBeeSniffer) from @kiwiHC16. He also helped me debug this documentation and a few version incompatibilities.
+
+# Troubleshooting
+Wireshark might get confused if your MCU sends data before Wireshark has been initialised properly. To avoid this, please reset your MCU and ask it to send data with the ZB/start menu.
 

@@ -80,11 +80,16 @@ do
 	}
 -- Parameters
 	p_zbparams104.prefs.comport = Pref.string("Serial port", default_settings.comport, "Serial port used to send commands")
-	p_zbparams104.prefs.channel = Pref.enum("Channel", default_settings.channel, "Zigbee channel to listen on", channel_pref_enum)
+	p_zbparams104.prefs.channel = Pref.enum("Channel", default_settings.channel, "Zigbee channel to listen on (use ZB menu to update)", channel_pref_enum)
 	function p_zbparams104.prefs_changed()
-	    dprint("p_zbparams104 prefs_changed called: channel = " .. p_zbparams104.prefs.channel .. ", serial port = " .. p_zbparams104.prefs.comport)
-	    default_settings.channel  = p_zbparams104.prefs.channel
+		dprint("p_zbparams104 prefs_changed called: channel = " .. p_zbparams104.prefs.channel .. ", serial port = " .. p_zbparams104.prefs.comport)
+		default_settings.channel  = p_zbparams104.prefs.channel
 		default_settings.comport  = p_zbparams104.prefs.comport
+		local portname = default_settings.comport
+		local channel  = default_settings.channel
+		local com = assert(io.open(portname, "w"))
+		com:write("C:" .. channel .. "\n")
+		com:close()
 	end
 
 -- Initialization routine
@@ -110,6 +115,8 @@ do
 				default_settings.comport = portname
 			end
 			if channel  == "" then
+				channel = default_settings.channel
+			else
 				default_settings.channel = channel
 			end
 			dprint("About to open file...")
@@ -128,8 +135,10 @@ do
 
 	local function zbstart()
 		local portname = default_settings.comport
+		local channel  = default_settings.channel
 		local com = assert(io.open(portname, "w"))
 		com:write("STA\n")
+		com:write("C:" .. channel .. "\n")
 		com:close()
 	end
 	local function zbstop()
