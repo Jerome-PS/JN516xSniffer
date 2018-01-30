@@ -56,7 +56,7 @@ do
 
 	local default_settings =
 	{
-		comport  = '\\.\pipe\wiresharkTx',
+		comport  = '\\\\.\\pipe\\wiresharkTx',
 		channel  = 20
 	}
 

@@ -16,24 +16,24 @@ import pywintypes
 # command line example: python Sniff.py COM3 C:\Users\snif\Downloads\WiresharkPortable\WiresharkPortable.exe
 
 if(len(sys.argv)<2):
-	print "This script needs at least one parameter:"
-	print "\tpython Sniff.py COMx"
-	print "or\tpython Sniff.py COMx path\\to\\wireshark"
+	print("This script needs at least one parameter:")
+	print("\tpython Sniff.py COMx")
+	print("or\tpython Sniff.py COMx path\\to\\wireshark")
 	exit()
 
 comport = sys.argv[1]
 
-print 'Use \\.\pipe\wiresharkTx to send commands from wireshark'
+print('Use \\.\pipe\wiresharkTx to send commands from wireshark')
 
 #ser = serial.Serial(comport, 38400, bytesize=8, parity='N', stopbits=1, timeout=None, xonxoff=0, rtscts=0)
-#print ser.name         # check which port was really used
+#print(ser.name)         # check which port was really used
 
 #TODO: check for wireshark in the registry
 #open Wireshark, configure pipe interface and start capture (not mandatory, you can also do this manually)
 wireshark_cmd=['C:\Program Files\Wireshark\Wireshark.exe', r'-i\\.\pipe\wireshark','-k', '-X', 'lua_script:zb.lua', '-X', 'lua_script1:comport=' + r'\\.\pipe\wiresharkTx', '-X', 'lua_script1:channel=25']
 if(len(sys.argv)>2):
 	wireshark_cmd=[sys.argv[2], r'-i\\.\pipe\wireshark','-k', '-X', 'lua_script:zb.lua', '-X', 'lua_script1:comport=' + r'\\.\pipe\wiresharkTx', '-X', 'lua_script1:channel=25']
-#print ' '.join(wireshark_cmd)
+#print(' '.join(wireshark_cmd))
 proc=subprocess.Popen(wireshark_cmd)
 
 #create the named pipe \\.\pipe\wireshark
@@ -100,7 +100,7 @@ def rxThread():
 		data = ser.read() # read one byte
 #		print("{0:x}".format(ord(data))),
 		#if data == 136:
-		#  print ("\n")
+		#  print("\n")
 		#sys.stdout.write( "{0:x}".format(ord(data)) )
 		#sys.stdout.write( " " )
 		# data = ser.read(10)        # read up to ten bytes (timeout)
