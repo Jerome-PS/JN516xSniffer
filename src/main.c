@@ -1,5 +1,4 @@
 #include <jendefs.h>
-#include <ctype.h>
 #include <AppHardwareApi.h>
 #include <JPT.h>
 #include "Printf.h"
@@ -28,6 +27,8 @@
 #define swap32(x)	__builtin_bswap32((x))
 //#define swap16(x)	__builtin_bswap16((x))
 #define swap16(x)	((((x) & 0xFF) << 8) | (((x) >> 8) & 0xFF))
+
+#define isdigit(x)	(((x)>='0') && ((x)<='9'))
 
 typedef struct pcap_hdr_s {
         uint32_t magic_number;   /* magic number */
@@ -91,6 +92,7 @@ PRIVATE char acGetC(void);
 PRIVATE void TickTimer_Cb(uint32_t u32Device, uint32_t u32ItemBitmap);
 PRIVATE void WS_init(void);
 PRIVATE void WS_Send_Chan_Num(uint8_t u8Channel);
+PRIVATE void WS_Send_Syntax_Error(const char * pBuffer);
 PRIVATE void WS_Send_Test_Packet(void);
 PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket);
 
@@ -172,7 +174,7 @@ PUBLIC void AppColdStart(void)
 	bJPT_RadioSetChannel(u8Channel);
 
 	while(1){
-        if ((u8Channel != u8Channelsave) && g_iWSDumpStatus > 0){
+		if ((u8Channel != u8Channelsave) && g_iWSDumpStatus > 0){
 			WS_Send_Chan_Num(u8Channel);
 			u8Channelsave = u8Channel;
 		}
@@ -209,13 +211,14 @@ PUBLIC void AppColdStart(void)
 				bCharBuffer[iCharBufferPtr++] = acKey;
 			}
 			if(acKey=='\n'){
-				if(bCharBuffer[0]=='C' && bCharBuffer[1]==':' && isdigit((uint8_t)bCharBuffer[2]) && isdigit((uint8_t)bCharBuffer[3])){
+				if(bCharBuffer[0]=='C' && bCharBuffer[1]==':' && isdigit(bCharBuffer[2]) && isdigit(bCharBuffer[3])){
 					int chan = (bCharBuffer[2] - '0')*10 + bCharBuffer[3] - '0';
 					if(chan>=11 && chan<=26){
 					   	bJPT_PacketRx(chan, &sPacket);
 						u8Channel = u8JPT_RadioGetChannel();
 						bJPT_RadioSetChannel(u8Channel);
 					}
+					u8Channelsave = 0;
 				}else if(bCharBuffer[0]=='S' && bCharBuffer[1]=='T' && bCharBuffer[2]=='O'){
 					g_iWSDumpStatus = 0;
 				}else if(bCharBuffer[0]=='S' && bCharBuffer[1]=='T' && bCharBuffer[2]=='A'){
@@ -224,6 +227,10 @@ PUBLIC void AppColdStart(void)
 					u8Channelsave = 0;
 				}else if(bCharBuffer[0]=='T' && bCharBuffer[1]=='S' && bCharBuffer[2]=='T'){
 					WS_Send_Test_Packet();
+				}else if(iCharBufferPtr>0){
+					bCharBuffer[iCharBufferPtr] = 0;
+// Send this whether we are initiated or not
+					WS_Send_Syntax_Error(bCharBuffer);
 				}
 				iCharBufferPtr = 0;
 			}
@@ -293,6 +300,47 @@ PRIVATE void WS_Send_Chan_Num(uint8_t u8Channel)
 	dataFrame[lenval++] = ((uint8_t*)&fFreq)[1];
 	dataFrame[lenval++] = ((uint8_t*)&fFreq)[2];
 	dataFrame[lenval++] = ((uint8_t*)&fFreq)[3];
+	pcap_rec_hdr.incl_len = swap32(lenval);
+	pcap_rec_hdr.orig_len = swap32(lenval);
+	int ws_snd_cnt;
+	for(ws_snd_cnt=0;ws_snd_cnt<sizeof(pcap_rec_hdr);ws_snd_cnt++){
+		vPutC(((uint8_t*)&pcap_rec_hdr)[ws_snd_cnt]);
+	}
+	for(ws_snd_cnt=0;ws_snd_cnt<lenval;ws_snd_cnt++){
+		vPutC(((uint8_t*)&dataFrame)[ws_snd_cnt]);
+	}
+}
+
+PRIVATE void WS_Send_Syntax_Error(const char * pBuffer)
+{
+	pcaprec_hdr_t pcap_rec_hdr = {.ts_sec=0, .ts_usec=0, .incl_len=0, .orig_len=0};
+	char dataFrame[300];
+	int lenval = 0;
+	uint32_t u32Seconds;
+	uint32_t u32Fraction;
+	do{
+		u32Seconds  = g_u32Seconds;
+		u32Fraction = u32AHI_TickTimerRead();
+	}while(u32Seconds!=g_u32Seconds);
+	pcap_rec_hdr.ts_sec  = swap32(u32Seconds);
+	pcap_rec_hdr.ts_usec = swap32(u32Fraction*10/16);		// 16 MHz
+	dataFrame[lenval++] = 0x07;					// Unknown packet type
+	dataFrame[lenval++] = 0x00;					// Unknown packet type
+	dataFrame[lenval++] = 0x01;					// Sequence number
+	int sptr = 0;
+	if(!(g_iWSDumpStatus > 0)){
+		const char * errstr = "!!!wireshark communication not initialized!!!\n";
+		while(lenval<sizeof(dataFrame)-1){				// -1 for terminating 0
+			if(!errstr[sptr]){break;}
+			dataFrame[lenval++] = errstr[sptr++];
+		}
+	}
+	int bptr = 0;
+	while(lenval<sizeof(dataFrame)-1){				// -1 for terminating 0
+		if(!pBuffer[bptr]){break;}
+		dataFrame[lenval++] = pBuffer[bptr++];
+	}
+	dataFrame[lenval++] = 0;
 	pcap_rec_hdr.incl_len = swap32(lenval);
 	pcap_rec_hdr.orig_len = swap32(lenval);
 	int ws_snd_cnt;

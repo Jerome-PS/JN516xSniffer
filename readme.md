@@ -39,7 +39,7 @@ If you are running Linux or macOS, you will have to create a pipe:
 mkfifo /tmp/sharkfifo
 ```
 
-And then route data from the serial port, passing the serial port for commands as a parameter and optionally the channel number (change *comport* and *channel* as needed):
+And then route data from the serial port, passing the serial port for commands as a parameter and optionally the channel number (change **comport** and **channel** as needed):
 ```
 wireshark -k -i /tmp/sharkfifo -X lua_script:zb.lua -X lua_script1:comport=/dev/cu.usbserial -X lua_script1:channel=25 &
 ```
@@ -57,13 +57,13 @@ stty -f /dev/cu.usbserial 38400 raw & cat /dev/cu.usbserial > /tmp/sharkfifo
 If you are using Windows, you will have to run the Sniffer.py script (you'll need the win32api and PySerial modules). You must pass the serial port name as the first parameter and optionally the wireshark.exe path as the second argument.
 Sadly, lua script parameter forwarding does not seem to work. So you might have to use the GUI in order to set your preferences.
 You can use an installed version of Wireshark or WiresharkPortable.
-You will need to run the python script as follows (from the directory where the .py and .lua scripts are and change the *COM* port and *path* as needed):
+You will need to run the python script as follows (from the directory where the .py and .lua scripts are and change the **COM** port and **path** as needed):
 ```
 python Sniff.py COM3 C:\Users\snif\Downloads\WiresharkPortable\WiresharkPortable.exe
 ```
 
 ## General usage
-You must send a start command in order to initialize Wireshark and the sniffer device and subsequently get packets. Use the ZB menu. *You will not see anything in Wireshark until you send the start command using the Tools/ZB/ZB Start menu command.*
+You must send a start command in order to initialize Wireshark and the sniffer device and subsequently get packets. Use the ZB menu. **You will not see anything in Wireshark until you send the start command using the Tools/ZB/ZB Start menu command.**
 ![ZB menu](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/WS_menu_ZB.png)
 Please make sure to select the correct channel, or you won't capture any frames. The Sniffer will send you a dummy frame to indicate the current channel every time you change it.
 ![ZB dialog](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/WS_dialog_Options.png)
@@ -78,4 +78,13 @@ This project is based on [work](https://github.com/KiwiHC16/ZigBeeSniffer) from 
 
 # Troubleshooting
 Wireshark might get confused if your MCU sends data before Wireshark has been initialised properly. To avoid this, please reset your MCU and ask it to send data with the ZB/start menu.
+
+You can debug the communication with the following command:
+```
+stty -f /dev/cu.usbserial 38400 raw & cat /dev/cu.usbserial | tee /tmp/sf.bin > /tmp/sharkfifo
+```
+You can view the file content like this:
+```
+hexdump -C /tmp/sf.bin
+```
 

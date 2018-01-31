@@ -22,13 +22,18 @@ do
 		pkt.cols.src = "JN516x"
 		pkt.cols.dst = "PC"
 
-		local chan = buf(3,1):uint()
-		local freq = buf(4,4):float()
-		pkt.cols.info:append("Channel=" .. chan .. " (" .. string.format("%.3f", freq/1000000) .. " GHz)")
-		subtree:add(f_channum1,buf:range(3,1))
-		subtree:add(f_chanfrq1,buf:range(4,4)):set_text(string.format("Frequency: %.3f GHz", freq/1000000))
---		subtree:add(f_channum1,chan)
---		subtree:add(f_chanfrq1,freq/1000000):append_text("GHz")
+		local ftyp = buf(2,1):uint()
+		if(ftyp==0)then
+			local chan = buf(3,1):uint()
+			local freq = buf(4,4):float()
+			pkt.cols.info:append("Channel=" .. chan .. " (" .. string.format("%.3f", freq/1000000) .. " GHz)")
+			subtree:add(f_channum1,buf:range(3,1))
+			subtree:add(f_chanfrq1,buf:range(4,4)):set_text(string.format("Frequency: %.3f GHz", freq/1000000))
+--			subtree:add(f_channum1,chan)
+--			subtree:add(f_chanfrq1,freq/1000000):append_text("GHz")
+		elseif(ftyp==1)then
+			pkt.cols.info = "Syntax error, could not interprete command."
+		end
 	end
 
 -- Dissection routine
@@ -119,12 +124,10 @@ do
 			else
 				default_settings.channel = channel
 			end
-			dprint("About to open file...")
+			dprint("About to send C:" .. channel .. " on " .. portname)
 			local com = assert(io.open(portname, "w"))
 			com:write("C:" .. channel .. "\n")
 			com:close()
-			dprint("Closed file...")
-
 		end
 
 		local portname = default_settings.comport
@@ -137,19 +140,23 @@ do
 		local portname = default_settings.comport
 		local channel  = default_settings.channel
 		local com = assert(io.open(portname, "w"))
+		dprint("About to send STA on " .. portname)
 		com:write("STA\n")
+		dprint("About to send C:" .. channel .. " on " .. portname)
 		com:write("C:" .. channel .. "\n")
 		com:close()
 	end
 	local function zbstop()
 		local portname = default_settings.comport
 		local com = assert(io.open(portname, "w"))
+		dprint("About to send STO on " .. portname)
 		com:write("STO\n")
 		com:close()
 	end
 	local function zbtest()
 		local portname = default_settings.comport
 		local com = assert(io.open(portname, "w"))
+		dprint("About to send TST on " .. portname)
 		com:write("TST\n")
 		com:close()
 	end

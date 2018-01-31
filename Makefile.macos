@@ -105,6 +105,11 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.S $(OBJ_DIR)/.dirok
 	$(CC) -c -o $@ $(CFLAGS) $(INCFLAGS) $< -MMD -MF $(OBJ_DIR)/$*.d -MP
 	@echo
 
+$(OBJ_DIR)/%.i: $(SRC_DIR)/%.c $(OBJ_DIR)/.dirok
+	$(info Compiling $< ...)
+	$(CC) -E -o $@ $(CFLAGS) $(INCFLAGS) $<
+	@echo
+
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(OBJ_DIR)/.dirok
 	$(info Compiling $< ...)
 	$(CC) -c -o $@ $(CFLAGS) $(INCFLAGS) $< -MMD -MF $(OBJ_DIR)/$*.d -MP

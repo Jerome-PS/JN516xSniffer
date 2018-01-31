@@ -23,7 +23,7 @@ if(len(sys.argv)<2):
 
 comport = sys.argv[1]
 
-print('Use \\.\pipe\wiresharkTx to send commands from wireshark')
+print("Use \\\\.\\pipe\\wiresharkTx to send commands from wireshark")
 
 #ser = serial.Serial(comport, 38400, bytesize=8, parity='N', stopbits=1, timeout=None, xonxoff=0, rtscts=0)
 #print(ser.name)         # check which port was really used
@@ -110,6 +110,7 @@ def rxThread():
 
 		#send pcap data trough the pipe
 		#then pcap data appears into wireshark
+		#232 winerror.ERROR_NO_DATA
 		win32file.WriteFile(pipe, data) 
 	
 
@@ -121,7 +122,7 @@ while(1):
 #		print("<0:x>".format(ord(data))),
 		ser.write(data) # read one byte
 	except pywintypes.error as e:
-		if(e[0]==109):
+		if(e.winerror==winerror.ERROR_BROKEN_PIPE):
 			win32pipe.DisconnectNamedPipe(pipeTx)
 			win32api.CloseHandle(pipeTx)
 			pipeTx = win32pipe.CreateNamedPipe(r'\\.\pipe\wiresharkTx', win32pipe.PIPE_ACCESS_INBOUND, win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_WAIT, 1, 65536, 65536, 300, None)
