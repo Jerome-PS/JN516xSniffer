@@ -2,6 +2,59 @@ do
 
 	local dprint = function(...)
 		print(table.concat({"Lua:", ...}," "))
+		local log = assert(io.open("lua.log", "a"))
+		log:write(table.concat({"Lua:", ...}," ") .. "\n")
+		log:close()
+	end
+
+	local default_settings =
+	{
+		comport  = '\\\\.\\pipe\\wiresharkTx',		-- This is the default for Windows
+		channel  = 20
+	}
+
+	dprint("========================================")
+	dprint("Started lua script on " .. os.date())
+	dprint("========================================")
+
+	dprint("Looking for environment variables")
+	local ecom = os.getenv("ZBL_COMPORT")
+	if(ecom~=nil)then
+		default_settings["comport"] = ecom
+		dprint("	Found environment COM port " .. ecom)
+	end
+	local echn = os.getenv("ZBL_CHANNEL")
+	if(echn~=nil)then
+		if tonumber(echn) and tonumber(echn)>=11 and tonumber(echn)<=26 then
+			default_settings["channel"] = tonumber(echn)
+			dprint("	Found environment Channel " .. echn)
+		else
+			info("	Unusable environment variable ZB_CHANNEL '"..echn.."' value must be a number between 11 and 26")
+			dprint("	Unusable environment variable ZB_CHANNEL '"..echn.."' value must be a number between 11 and 26")
+		end
+	end
+	dprint("Parsing command line parameters")
+	local args={...} -- get passed-in args
+	if args and #args > 0 then
+		for _, arg in ipairs(args) do
+		    local name, value = arg:match("(.+)=(.+)")
+		    if name and value then
+				dprint("	name="..name.."; value="..value)
+				if name=="comport" then
+					default_settings["comport"] = value
+				elseif name=="channel" then
+					if tonumber(value) and tonumber(value)>=11 and tonumber(value)<=26 then
+						default_settings["channel"] = tonumber(value)
+					else
+						error("	commandline argument '"..name.."' value must be a number between 11 and 26")
+					end
+				else
+					error("	unknow commandline argument '"..name.."'")
+				end
+		    else
+		        error("	invalid commandline argument syntax")
+		    end
+		end
 	end
 
 --	local p_zbparams = Proto("zbparams","ZBParams");
@@ -59,12 +112,6 @@ do
 		end
     end
 
-	local default_settings =
-	{
-		comport  = '\\\\.\\pipe\\wiresharkTx',
-		channel  = 20
-	}
-
 	local channel_pref_enum = {
 		{  1,  "Channel 11 (2.405GHz)", 11 },
 		{  2,  "Channel 12 (2.410GHz)", 12  },
@@ -85,7 +132,7 @@ do
 	}
 -- Parameters
 	p_zbparams104.prefs.comport = Pref.string("Serial port", default_settings.comport, "Serial port used to send commands")
-	p_zbparams104.prefs.channel = Pref.enum("Channel", default_settings.channel, "Zigbee channel to listen on (use ZB menu to update)", channel_pref_enum)
+	p_zbparams104.prefs.channel = Pref.enum("Channel", default_settings.channel, "Zigbee channel to listen on", channel_pref_enum)
 	function p_zbparams104.prefs_changed()
 		dprint("p_zbparams104 prefs_changed called: channel = " .. p_zbparams104.prefs.channel .. ", serial port = " .. p_zbparams104.prefs.comport)
 		default_settings.channel  = p_zbparams104.prefs.channel

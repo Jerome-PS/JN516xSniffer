@@ -2,11 +2,39 @@
 
 This has been tested on the Xiaomi Smart Button.
 
+## Quickstart on Linux
+Once per session (until you reboot the computer for example), create the pipe and start wireshark:
+```
+mkfifo /tmp/sharkfifo
+wireshark -k -i /tmp/sharkfifo -X lua_script:zb.lua -X lua_script1:comport=/dev/ttyUSB0 -X lua_script1:channel=25 &
+```
+When capture stopped and the pipe broke, restart the capture in wireshark and rebuild the pipe:
+```
+stty -F /dev/ttyUSB0 38400 raw & cat /dev/ttyUSB0 | tee /tmp/sf.bin > /tmp/sharkfifo
+```
+
+## Quickstart on macOS
+Once per session (until you reboot the computer for example), create the pipe and start wireshark:
+```
+mkfifo /tmp/sharkfifo
+wireshark -k -i /tmp/sharkfifo -X lua_script:zb.lua -X lua_script1:comport=/dev/cu.usbserial -X lua_script1:channel=25 &
+```
+When capture stopped and the pipe broke, restart the capture in wireshark and rebuild the pipe:
+```
+stty -F /dev/cu.usbserial 38400 raw & cat /dev/cu.usbserial | tee /tmp/sf.bin > /tmp/sharkfifo
+```
+
+## Quickstart on Windows
+Open command line, cd to the folder containing the scripts and launch:
+```
+python Sniff.py COM3 C:\Users\snif\Downloads\WiresharkPortable\WiresharkPortable.exe
+```
+
 # Compiling the sniffer
 You will need the NXP JN-SW-4163 SDK in order to compile the source code.
 
 ## Precompiled binary
-There is a precompiled binary in the [bin folder](https://github.com/Jerome-PS/JN516xSniffer/tree/master/bin).
+There is a precompiled binary in the [bin folder](https://github.com/Jerome-PS/JN516xSniffer/tree/master/bin). **TODO: Check that it is up to date...**
 
 ## Compiling on macOS or Linux
 Compilation using ba-elf-gcc 4.7.4 is a PITA, as some paths are not recognised, even when recompiling the compiler with the correct prefix.
@@ -87,4 +115,12 @@ You can view the file content like this:
 ```
 hexdump -C /tmp/sf.bin
 ```
+
+The lua script creates a file named lua.log in the folder wireshark is started.
+
+You can also pass the dissector parameters through environment varaibles:
+```
+env ZBL_CHANNEL=12 ZBL_COMPORT=/dev/ttyUSB1 wireshark -X lua_script:zb.lua -k -i /tmp/sharkfifo &
+```
+
 
