@@ -4,7 +4,7 @@
 ############ PySerial
 # http://sourceforge.net/projects/pywin32/
 
-import win32pipe, win32api, win32file
+import win32pipe, win32api, win32file, winerror
 import time
 import subprocess
 import serial
@@ -25,8 +25,8 @@ comport = sys.argv[1]
 
 print("Use \\\\.\\pipe\\wiresharkTx to send commands from wireshark")
 
-#ser = serial.Serial(comport, 38400, bytesize=8, parity='N', stopbits=1, timeout=None, xonxoff=0, rtscts=0)
-#print(ser.name)         # check which port was really used
+ser = serial.Serial(comport, 38400, bytesize=8, parity='N', stopbits=1, timeout=None, xonxoff=0, rtscts=0)
+print(ser.name)         # check which port was really used
 
 #TODO: check for wireshark in the registry
 #open Wireshark, configure pipe interface and start capture (not mandatory, you can also do this manually)
@@ -59,34 +59,8 @@ pipeTx = win32pipe.CreateNamedPipe(
 win32pipe.ConnectNamedPipe(pipe, None)
 win32pipe.ConnectNamedPipe(pipeTx, None)
 
-# ser.write(b'hello')     # write a string
-#ser.write('a')
-#ser.write('a')
-#ser.write('h')
-
-# win32file.WriteFile(pipe, 0xd4); win32file.WriteFile(pipe, 0xc3); win32file.WriteFile(pipe, 0xb2); win32file.WriteFile(pipe, 0xa1);
-#win32file.WriteFile(pipe, bytes([0xd4, 0xc3, 0xb2, 0xa1]) );
-
-#win32file.WriteFile(pipe, 0x02); win32file.WriteFile(pipe, 0x00);
-#win32file.WriteFile(pipe, bytes([0x02, 0x00]) );
-
-#win32file.WriteFile(pipe, 0x04); win32file.WriteFile(pipe, 0x00);
-#win32file.WriteFile(pipe, bytes([0x04, 0x00]) );
-
-#win32file.WriteFile(pipe, 0x00); win32file.WriteFile(pipe, 0x00); win32file.WriteFile(pipe, 0x00); win32file.WriteFile(pipe, 0x00);
-#win32file.WriteFile(pipe, bytes([0x00, 0x00, 0x00, 0x00]) );
-
-#win32file.WriteFile(pipe, 0x00); win32file.WriteFile(pipe, 0x00); win32file.WriteFile(pipe, 0x00); win32file.WriteFile(pipe, 0x00);
-#win32file.WriteFile(pipe, bytes([0x00, 0x00, 0x00, 0x00]) );
-
-#win32file.WriteFile(pipe, 0xff); win32file.WriteFile(pipe, 0xff); win32file.WriteFile(pipe, 0x00); win32file.WriteFile(pipe, 0x00);
-#win32file.WriteFile(pipe, bytes([0xff, 0xff, 0x00, 0x00]) );
-
 # C3 : LINKTYPE_IEEE802_15_4	    195	DLT_IEEE802_15_4	    IEEE 802.15.4 wireless Personal Area Network, with each packet having the FCS at the end of the frame.
 # E6 : LINKTYPE_IEEE802_15_4_NOFCS	230	DLT_IEEE802_15_4_NOFCS	IEEE 802.15.4 wireless Personal Area Network, without the FCS at the end of the frame.
-#win32file.WriteFile(pipe, 0xc3); win32file.WriteFile(pipe, 0x00); win32file.WriteFile(pipe, 0x00); win32file.WriteFile(pipe, 0x00);
-# win32file.WriteFile(pipe, bytes([0xc3, 0x00, 0x00, 0x00]) );
-#win32file.WriteFile(pipe, bytes([0xe6, 0x00, 0x00, 0x00]) );
 
 ser.flushInput()
 ser.flushOutput()
@@ -96,21 +70,7 @@ print("Start loop")
 
 def rxThread():
 	while 1:
-		#data = cf.read()
 		data = ser.read() # read one byte
-#		print("{0:x}".format(ord(data))),
-		#if data == 136:
-		#  print("\n")
-		#sys.stdout.write( "{0:x}".format(ord(data)) )
-		#sys.stdout.write( " " )
-		# data = ser.read(10)        # read up to ten bytes (timeout)
-
-		#wait 2 second (not mandatory, but this let watching data coming trough the pipe)
-		#time.sleep(2)
-
-		#send pcap data trough the pipe
-		#then pcap data appears into wireshark
-		#232 winerror.ERROR_NO_DATA
 		win32file.WriteFile(pipe, data) 
 	
 
@@ -119,7 +79,6 @@ threading.Thread(target=rxThread).start()
 while(1):
 	try:
 		(hr, data) = win32file.ReadFile(pipeTx,1) 
-#		print("<0:x>".format(ord(data))),
 		ser.write(data) # read one byte
 	except pywintypes.error as e:
 		if(e.winerror==winerror.ERROR_BROKEN_PIPE):

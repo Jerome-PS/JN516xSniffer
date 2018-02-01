@@ -8,7 +8,7 @@
 /***        Macro Definitions                                             ***/
 /****************************************************************************/
 
-//#define XIAMO_SMART_BUTTON
+//#define XIAOMI_SMART_BUTTON
 
 #define UART_TO_PC              E_AHI_UART_0        /* Uart to PC           */
 
@@ -16,11 +16,11 @@
 
 #define STARTUP_CHANNEL			20
 
-#ifdef XIAMO_SMART_BUTTON
+#ifdef XIAOMI_SMART_BUTTON
 #define LED_PIN_BIT				(1 << 11)
 #define MAIN_PIN_BIT			(1 << 16)
 #define PAIR_PIN_BIT			(1 <<  0)
-#endif //def XIAMO_SMART_BUTTON
+#endif //def XIAOMI_SMART_BUTTON
 
 #define READ_REG32(A)     *(volatile uint32 *)(A)
 
@@ -140,7 +140,7 @@ PUBLIC void AppColdStart(void)
 
 	vInitPrintf((void*)vPutC);
 
-#ifdef XIAMO_SMART_BUTTON
+#ifdef XIAOMI_SMART_BUTTON
 	vAHI_DioSetPullup(~MAIN_PIN_BIT, MAIN_PIN_BIT);  /* turn all pullups on except for DIO16 which is big button input      */
 	vAHI_DioSetDirection(0x00000000, LED_PIN_BIT);		// Set DIO11 as output (LED)
 #else
@@ -184,7 +184,7 @@ PUBLIC void AppColdStart(void)
 			}
 		}
 
-#ifdef XIAMO_SMART_BUTTON
+#ifdef XIAOMI_SMART_BUTTON
 		static int t_r = -1;
 		if(t_r!=g_u32Seconds){
 			t_r = g_u32Seconds;
