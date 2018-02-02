@@ -66,22 +66,22 @@ volatile uint32_t g_u32Seconds = 0;
 int g_iWSDumpStatus = 0;
 
 const float afFrequencies[] = {
-							2.405e6,
-                            2.410e6,
-                            2.415e6,
-                            2.420e6,
-                            2.425e6,
-                            2.430e6,
-                            2.435e6,
-                            2.440e6,
-                            2.445e6,
-                            2.450e6,
-                            2.455e6,
-                            2.460e6,
-                            2.465e6,
-                            2.470e6,
-                            2.475e6,
-                            2.480e6};
+		2.405e6,
+		2.410e6,
+		2.415e6,
+		2.420e6,
+		2.425e6,
+		2.430e6,
+		2.435e6,
+		2.440e6,
+		2.445e6,
+		2.450e6,
+		2.455e6,
+		2.460e6,
+		2.465e6,
+		2.470e6,
+		2.475e6,
+		2.480e6};
 
 /****************************************************************************/
 /***        Local Function Prototypes                                     ***/
@@ -128,7 +128,7 @@ PUBLIC void AppColdStart(void)
 	volatile int n;
 	for(n=0;n<100000;n++);      // wait for JN516X to move onto 32MHz Crystal
 
-    /* set up the tick timer, we'll use it for timestamps */
+/* set up the tick timer, we'll use it for timestamps */
 	vAHI_TickTimerConfigure(E_AHI_TICK_TIMER_DISABLE);
 	vAHI_TickTimerInit((void*)TickTimer_Cb);
 	vAHI_TickTimerWrite(0x00000000);
@@ -240,7 +240,7 @@ PUBLIC void AppColdStart(void)
 
 PUBLIC void AppWarmStart(void)
 {
-    AppColdStart();
+	AppColdStart();
 }
 
 /****************************************************************************/
@@ -249,12 +249,12 @@ PUBLIC void AppWarmStart(void)
 
 PRIVATE void vPutC(uint8 u8Data)
 {
-    vUartWrite(UART_TO_PC, u8Data);
+	vUartWrite(UART_TO_PC, u8Data);
 }
 
 PRIVATE char acGetC(void)
 {
-    return(u8UartRead(UART_TO_PC));
+	return(u8UartRead(UART_TO_PC));
 }
 
 
@@ -397,7 +397,7 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 	bool_t bDstExtAddr = FALSE;
 	bool_t bIntraPan = FALSE;
 
-    if ( FCS ){ FCS_Length = 2; }else{ FCS_Length = 0; }
+	if ( FCS ){ FCS_Length = 2; }else{ FCS_Length = 0; }
 
 	uint32_t u32Seconds;
 	uint32_t u32Fraction;
@@ -410,9 +410,9 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 
 /* ========================== Analyze Received Packet ==============================================*/
 	if (psPacket->bPacketGood) {
-	
+
 //	IEEE 802.15.4 specification Section 5.2.1.1
-// Bits 
+// Bits
 //	 0- 2: Frame type
 //			000	Beacon
 //			001 Data
@@ -426,78 +426,79 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 //	    6: PAN ID Compression
 //	 7- 9: Reserved
 //	10-11: Dest. Addressing Mode
-//			
+//
 //	12-13: Frame version
 //	14-15: Source Addressing Mode
-	
+
 		if((psPacket->u16FrameControl >> 6) & 1){ bIntraPan = TRUE; }
 
 		/* Source addressing mode */
 		switch((psPacket->u16FrameControl >> 14) & 3){
 
-			/* PAN id and address field not present */
-			case 0:
-				bSrcShortAddr = FALSE;
-				bSrcExtAddr = FALSE;
-				break;
+		/* PAN id and address field not present */
+		case 0:
+			bSrcShortAddr = FALSE;
+			bSrcExtAddr = FALSE;
+			break;
 
-			/* Reserved */
-			case 1:
-				// Je mets short mais je ne sais pas ce que cela doit etre
-				bSrcShortAddr = FALSE;
-				bSrcExtAddr = FALSE;
-				break;
+		/* Reserved */
+		case 1:
+// TODO: should we signal an error?
+			// Je mets short mais je ne sais pas ce que cela doit etre
+			bSrcShortAddr = FALSE;
+			bSrcExtAddr = FALSE;
+			break;
 
-			/* Address field contains a 16 bit short address */
-			case 2:
-				// vPrintf("SSAD=%04x ",psPacket->u16SourceShortAddress);
-				bSrcShortAddr = TRUE;
-				bSrcExtAddr = FALSE;
-				break;
+		/* Address field contains a 16 bit short address */
+		case 2:
+			// vPrintf("SSAD=%04x ",psPacket->u16SourceShortAddress);
+			bSrcShortAddr = TRUE;
+			bSrcExtAddr = FALSE;
+			break;
 
-			/* Address field contains a 64 bit extended address */
-			case 3:
-				// vPrintf("SEAD=%016lx ", psPacket->u64SourceExtendedAddress);
-				bSrcShortAddr = FALSE;
-				bSrcExtAddr = TRUE;
-				break;
+		/* Address field contains a 64 bit extended address */
+		case 3:
+			// vPrintf("SEAD=%016lx ", psPacket->u64SourceExtendedAddress);
+			bSrcShortAddr = FALSE;
+			bSrcExtAddr = TRUE;
+			break;
 		}
 
 		/* Destination addressing mode */
 		switch((psPacket->u16FrameControl & 3 << 10) >> 10){
 
-			/* PAN id and address field not present */
-			case 0:
-				bDstShortAddr = FALSE;
-				bDstExtAddr = FALSE;
-				break;
+		/* PAN id and address field not present */
+		case 0:
+			bDstShortAddr = FALSE;
+			bDstExtAddr = FALSE;
+			break;
 
 			/* Reserved */
-			case 1:
-				// Je mets short mais je ne sais pas ce que cela doit etre
-				bDstShortAddr = FALSE;
-				bDstExtAddr = FALSE;
-				break;
+		case 1:
+			// Je mets short mais je ne sais pas ce que cela doit etre
+			bDstShortAddr = FALSE;
+			bDstExtAddr = FALSE;
+			break;
 
 			/* Address field contains a 16 bit short address */
-			case 2:
-				// vPrintf("DSAD=%04x ",psPacket->u16DestinationShortAddress);
-				bDstShortAddr = TRUE;
-				bDstExtAddr = FALSE;
-				break;
+		case 2:
+			// vPrintf("DSAD=%04x ",psPacket->u16DestinationShortAddress);
+			bDstShortAddr = TRUE;
+			bDstExtAddr = FALSE;
+			break;
 
 			/* Address field contains a 64 bit extended address */
-			case 3:
-				// vPrintf("DEAD=%016lx ", psPacket->u64DestinationExtendedAddress);
-				bDstShortAddr = FALSE;
-				bDstExtAddr = TRUE;
-				break;
+		case 3:
+			// vPrintf("DEAD=%016lx ", psPacket->u64DestinationExtendedAddress);
+			bDstShortAddr = FALSE;
+			bDstExtAddr = TRUE;
+			break;
 
-			}
+		}
 	}
 
-    /* look at frame type */
-    switch(psPacket->u16FrameControl & 7){
+/* look at frame type */
+	switch(psPacket->u16FrameControl & 7){
 /* MAC Beacon Reply -----------------------------------------------------------------------------------------  */
 	case 0:
 		if ( (psPacket->u8PayloadLength!=0) && (psPacket->bPacketGood) ) {
@@ -622,7 +623,7 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 		break;
 /* Reserved  ------------------------------------------------------------------------------------------------  */
 	default:
-			// Will need to inform Wireshark that an unsupported packet has been received but not forwarded.
+		// Will need to inform Wireshark that an unsupported packet has been received but not forwarded.
 		break;
 	}
 }
