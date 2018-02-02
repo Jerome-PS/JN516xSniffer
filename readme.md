@@ -10,7 +10,7 @@ wireshark -k -i /tmp/sharkfifo -X lua_script:zb.lua -X lua_script1:comport=/dev/
 ```
 When capture stopped and the pipe broke, restart the capture in wireshark and rebuild the pipe:
 ```
-stty -F /dev/ttyUSB0 38400 raw & cat /dev/ttyUSB0 | tee /tmp/sf.bin > /tmp/sharkfifo
+stty -F /dev/ttyUSB0 38400 raw ignbrk -onlcr -iexten -echo -echoe -echok -echoctl -echoke & cat /dev/ttyUSB0 | tee /tmp/sf.bin > /tmp/sharkfifo
 ```
 
 ## Quickstart on macOS
@@ -72,9 +72,9 @@ And then route data from the serial port, passing the serial port for commands a
 wireshark -k -i /tmp/sharkfifo -X lua_script:zb.lua -X lua_script1:comport=/dev/cu.usbserial -X lua_script1:channel=25 &
 ```
 Sadly here we have a small difference between macOS and Linux (notice capital letter F or small print f)!
-This is the Linux version:
+This is the Linux version (raw is actually now that raw, so a lot of things have to be switched off manually):
 ```
-stty -F /dev/ttyUSB0 38400 raw & cat /dev/ttyUSB0 > /tmp/sharkfifo
+stty -F /dev/ttyUSB0 38400 raw ignbrk -onlcr -iexten -echo -echoe -echok -echoctl -echoke & cat /dev/ttyUSB0 > /tmp/sharkfifo
 ```
 This is the macOS version:
 ```
@@ -122,5 +122,6 @@ You can also pass the dissector parameters through environment varaibles:
 ```
 env ZBL_CHANNEL=12 ZBL_COMPORT=/dev/ttyUSB1 wireshark -X lua_script:zb.lua -k -i /tmp/sharkfifo &
 ```
-
+If you get stuck with remaining data in the FIFO that repeatedly crashes wireshark, you can destroy the pipe and re-create it:
+rm -f /tmp/sharkfifo && mkfifo /tmp/sharkfifo
 
