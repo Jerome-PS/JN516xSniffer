@@ -30,6 +30,14 @@ Open command line, cd to the folder containing the scripts and launch:
 python Sniff.py COM3 C:\Users\snif\Downloads\WiresharkPortable\WiresharkPortable.exe
 ```
 
+- [Compiling the sniffer](#Compiling the sniffer)
+	- [Precompiled binary](#Precompiled binary)
+	- [Compiling on Windows](#Compiling on Windows)
+- [Interfacing to Wireshark](#Interfacing to Wireshark)
+- [Hardware](#Hardware)
+- [Using the GUI to set the preferences](#Using the GUI to set the preferences)
+- [Troubleshooting](#Troubleshooting)
+
 # Compiling the sniffer
 You will need the NXP JN-SW-4163 SDK in order to compile the source code.
 
@@ -101,6 +109,12 @@ Please make sure to select the correct channel, or you won't capture any frames.
 ![Preferences dialog](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/WS_dialog.png) 
 Note that changing the parameters in this dialog will try and send an update to the MCU.
 
+#Hardware
+![Xiaomi_Door_sensor](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/Xiaomi_Door_sensor.JPG)
+![Xiaomi_smart_button](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/Xiaomi_smart_button.JPG)
+![Xiaomi_smart_button_UART1](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/Xiaomi_smart_button_UART1.JPG)
+
+
 # Acknowledgements
 This project is based on [work](https://github.com/KiwiHC16/ZigBeeSniffer) from @KiwiHC16 . He also helped me debug this documentation and a few version incompatibilities.
 
@@ -123,5 +137,7 @@ You can also pass the dissector parameters through environment varaibles:
 env ZBL_CHANNEL=12 ZBL_COMPORT=/dev/ttyUSB1 wireshark -X lua_script:zb.lua -k -i /tmp/sharkfifo &
 ```
 If you get stuck with remaining data in the FIFO that repeatedly crashes wireshark, you can destroy the pipe and re-create it:
+```
 rm -f /tmp/sharkfifo && mkfifo /tmp/sharkfifo
+```
 
