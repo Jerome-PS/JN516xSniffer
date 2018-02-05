@@ -30,12 +30,17 @@ Open command line, cd to the folder containing the scripts and launch:
 python Sniff.py COM3 C:\Users\snif\Downloads\WiresharkPortable\WiresharkPortable.exe
 ```
 
-- [Compiling the sniffer](#Compiling the sniffer)
-	- [Precompiled binary](#Precompiled binary)
-	- [Compiling on Windows](#Compiling on Windows)
-- [Interfacing to Wireshark](#Interfacing to Wireshark)
+# Table Of Content
+- [Compiling the sniffer](#Compiling-the-sniffer)
+	- [Precompiled binary](#Precompiled-binary)
+	- [Compiling on macOS or Linux](#Compiling-on-macOS-or-Linux)
+	- [Compiling on Windows](#Compiling-on-Windows)
+- [Interfacing to Wireshark](#Interfacing-to-Wireshark)
 - [Hardware](#Hardware)
-- [Using the GUI to set the preferences](#Using the GUI to set the preferences)
+	- [Xiaomi Door sensor](#Xiaomi-Door-sensor)
+	- [Xiaomi smart button](#Xiaomi-smart-button)
+	- [Xiaomi smart button UART1](#Xiaomi-smart-button-UART1)
+- [Using the GUI to set the preferences](#Using-the-GUI-to-set-the-preferences)
 - [Troubleshooting](#Troubleshooting)
 
 # Compiling the sniffer
@@ -109,9 +114,29 @@ Please make sure to select the correct channel, or you won't capture any frames.
 ![Preferences dialog](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/WS_dialog.png) 
 Note that changing the parameters in this dialog will try and send an update to the MCU.
 
-#Hardware
-![Xiaomi_Door_sensor](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/Xiaomi_Door_sensor.JPG)
+# Hardware
+## Xiaomi Door sensor
+Wiring colors are :
+1. Purple: Tx (OUT from MCU)
+2. Green : Rx (IN  to   MCU)
+3. Bleue : nBootloader
+4. Red   : 3V3
+5. White : nReset
+6. Black : GND
+![Xiaomi_smart_button](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/Xiaomi_Door_sensor.JPG)
+
+## Xiaomi smart button
+1. Purple: Tx (OUT from MCU)
+2. Green : Rx (IN  to   MCU)
+3. Bleue : nBootloader
+4. Red   : 3V3
+5. White : nReset
+6. Black : GND
 ![Xiaomi_smart_button](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/Xiaomi_smart_button.JPG)
+
+## Xiaomi smart button UART1
+1. For UART1 Tx, on this side of the resistor, we have the CPU pin directly.
+2. You can find some GND on this tantalum capacitor.
 ![Xiaomi_smart_button_UART1](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/Xiaomi_smart_button_UART1.JPG)
 
 
