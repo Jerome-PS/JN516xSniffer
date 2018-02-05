@@ -527,45 +527,54 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 		break;
 /* MAC Data -------------------------------------------------------------------------------------------------- */
 	case 1:
-		if ( (psPacket->u8PayloadLength!=0) && (psPacket->bPacketGood) ) {
+//		if ( (psPacket->u8PayloadLength!=0) && (psPacket->bPacketGood) ) {
+		if ( (psPacket->bPacketGood) ) {
 			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
 			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
 			
-			int addr_len = 0;
-			addr_len += 2;
-			if(bDstShortAddr){							addr_len += 2;		}
-			if(bDstExtAddr){							addr_len += 8;		}
-			if ( (bIntraPan==0) && (bSrcExtAddr) ) {	addr_len += 2;		}
-			if(bSrcShortAddr){							addr_len += 2;		}
-			if(bSrcExtAddr){							addr_len += 8;		}
-			FCS_Length = 2;
-			
-			vPutC( psPacket->u8PayloadLength + 3 + addr_len + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-			vPutC( psPacket->u8PayloadLength + 3 + addr_len + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
+			int frame_len = 0;
+			frame_len += 2;			// Control field
+			frame_len += 1;			// Sequence numbe
+			if(bDstShortAddr || bDstExtAddr){			frame_len += 2;	}	// Destination PAN (Std 802.15.4-2011 p59)
+			if(bDstShortAddr){					frame_len += 2;	}
+			if(bDstExtAddr){					frame_len += 8;	}
+			if((bIntraPan==0) && (bSrcExtAddr || bSrcShortAddr)){	frame_len += 2;	}
+			if(bSrcShortAddr){					frame_len += 2;	}
+			if(bSrcExtAddr){					frame_len += 8;	}
+			frame_len += psPacket->u8PayloadLength;
+
+			vPutC( frame_len ); vPutC(0); vPutC(0); vPutC(0);
+			vPutC( frame_len ); vPutC(0); vPutC(0); vPutC(0);
 	// MAC
 		// FrameControl
 			vPutC(psPacket->u16FrameControl&0xFF); vPutC(psPacket->u16FrameControl>>8);
 		// SequenceNumber
 			vPutC(psPacket->u8SequenceNumber);
 		// Destination Pan ID
-			vPutC(psPacket->u16DestinationPanID&0xFF); vPutC(psPacket->u16DestinationPanID>>8);
+			if(bDstShortAddr || bDstExtAddr){
+				vPutC(psPacket->u16DestinationPanID&0xFF); vPutC(psPacket->u16DestinationPanID>>8);
+			}
+		// Destination Address
 			if(bDstShortAddr){
-		// Destination Short Address
+			// Destination Short Address
 				vPutC(psPacket->u16DestinationShortAddress&0xFF); vPutC(psPacket->u16DestinationShortAddress>>8);
 			}
 			if ( bDstExtAddr ) {
+			// Destination Long Address
 				uint8 *data = (uint8 *)&(psPacket->u64DestinationExtendedAddress);
 				vPutC(data[7]); vPutC(data[6]); vPutC(data[5]); vPutC(data[4]); vPutC(data[3]); vPutC(data[2]); vPutC(data[1]); vPutC(data[0]);
 			}
 		// Source Pan ID
-			if ( (bIntraPan==0) && (bSrcExtAddr) ) {
+			if ( (bIntraPan==0) && (bSrcExtAddr || bSrcShortAddr) ) {
 				vPutC(psPacket->u16SourcePanID&0xFF); vPutC(psPacket->u16SourcePanID>>8);
 			}
+		// Source Address
 			if(bSrcShortAddr){
-		// Source Short Address
+			// Source Short Address
 				vPutC(psPacket->u16SourceShortAddress&0xFF); vPutC(psPacket->u16SourceShortAddress>>8);
 			}
 			if ( bSrcExtAddr ) {
+			// Source Long Address
 				uint8 *data = (uint8 *)&(psPacket->u64SourceExtendedAddress);
 				vPutC(data[7]); vPutC(data[6]); vPutC(data[5]); vPutC(data[4]); vPutC(data[3]); vPutC(data[2]); vPutC(data[1]); vPutC(data[0]);
 			}

@@ -30,6 +30,7 @@ Open command line, cd to the folder containing the scripts and launch:
 python Sniff.py COM3 C:\Users\snif\Downloads\WiresharkPortable\WiresharkPortable.exe
 ```
 
+# Table Of Content
 - [Compiling the sniffer](#Compiling-the-sniffer)
 	- [Precompiled binary](#Precompiled-binary)
 	- [Compiling on macOS or Linux](#Compiling-on-macOS-or-Linux)
@@ -114,7 +115,7 @@ Please make sure to select the correct channel, or you won't capture any frames.
 Note that changing the parameters in this dialog will try and send an update to the MCU.
 
 # Hardware
-## Xiaomi_Door_sensor
+## Xiaomi Door sensor
 Wiring colors are :
 1. Purple: Tx (OUT from MCU)
 2. Green : Rx (IN  to   MCU)
@@ -124,7 +125,7 @@ Wiring colors are :
 6. Black : GND
 ![Xiaomi_smart_button](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/Xiaomi_Door_sensor.JPG)
 
-## Xiaomi Door sensor
+## Xiaomi smart button
 1. Purple: Tx (OUT from MCU)
 2. Green : Rx (IN  to   MCU)
 3. Bleue : nBootloader
