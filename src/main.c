@@ -131,18 +131,20 @@ PUBLIC void AppColdStart(void)
 /* set up the tick timer, we'll use it for timestamps */
 	vAHI_TickTimerConfigure(E_AHI_TICK_TIMER_DISABLE);
 	vAHI_TickTimerInit((void*)TickTimer_Cb);
-	vAHI_TickTimerWrite(0x00000000);
-	vAHI_TickTimerInterval(16000000);							// 1Hz
+	vAHI_TickTimerWrite(0x00000000);					// Starting  count
+	vAHI_TickTimerInterval(16000000);					// Reference count 1Hz
 	vAHI_TickTimerIntEnable(TRUE);
 	vAHI_TickTimerConfigure(E_AHI_TICK_TIMER_RESTART);
 
+	vAHI_UartSetRTSCTS(UART_TO_PC, FALSE);
 	vUartInit(UART_TO_PC, BAUD_RATE, au8UartTxBuffer, sizeof(au8UartTxBuffer), au8UartRxBuffer, sizeof(au8UartRxBuffer));/* uart for user interface */
 
-	vInitPrintf((void*)vPutC);
+#ifdef HEARTBEAT_LED
+	vAHI_DioSetDirection(0x00000000, LED_PIN_BIT);		// Set DIO11 as output (LED)
+#endif	//def HEARTBEAT_LED
 
 #ifdef XIAOMI_SMART_BUTTON
 	vAHI_DioSetPullup(~MAIN_PIN_BIT, MAIN_PIN_BIT);  /* turn all pullups on except for DIO16 which is big button input      */
-	vAHI_DioSetDirection(0x00000000, LED_PIN_BIT);		// Set DIO11 as output (LED)
 #else
 	vAHI_DioSetPullup(0xffffffff, 0x00000000);  /* turn all pullups on      */
 #endif
@@ -184,7 +186,7 @@ PUBLIC void AppColdStart(void)
 			}
 		}
 
-#ifdef XIAOMI_SMART_BUTTON
+#ifdef HEARTBEAT_LED
 		static int t_r = -1;
 		if(t_r!=g_u32Seconds){
 			t_r = g_u32Seconds;
@@ -194,6 +196,9 @@ PUBLIC void AppColdStart(void)
 				vAHI_DioSetOutput(LED_PIN_BIT, 0x00000000);		// Set DIO11 (LED)	OFF
 			}
 		}
+#endif	//def HEARTBEAT_LED
+
+#ifdef XIAOMI_SMART_BUTTON
 		if(!(u32AHI_DioReadInput()&MAIN_PIN_BIT)){
 			vPrintf("Main button\n");
 		}
@@ -366,18 +371,20 @@ PRIVATE void WS_Send_Test_Packet(void)
 	};
 	uint32_t u32Seconds;
 	uint32_t u32Fraction;
+	uint32_t u32Micros;
 	do{
 		u32Seconds  = g_u32Seconds;
 		u32Fraction = u32AHI_TickTimerRead();
 	}while(u32Seconds!=g_u32Seconds);
+	u32Micros = u32Fraction/16;
 	u8tstFrame[0] = ((uint8_t*)&u32Seconds)[3];
 	u8tstFrame[1] = ((uint8_t*)&u32Seconds)[2];
 	u8tstFrame[2] = ((uint8_t*)&u32Seconds)[1];
 	u8tstFrame[3] = ((uint8_t*)&u32Seconds)[0];
-	u8tstFrame[4] = ((uint8_t*)&u32Fraction)[3];
-	u8tstFrame[5] = ((uint8_t*)&u32Fraction)[2];
-	u8tstFrame[6] = ((uint8_t*)&u32Fraction)[1];
-	u8tstFrame[7] = ((uint8_t*)&u32Fraction)[0];
+	u8tstFrame[4] = ((uint8_t*)&u32Micros)[3];
+	u8tstFrame[5] = ((uint8_t*)&u32Micros)[2];
+	u8tstFrame[6] = ((uint8_t*)&u32Micros)[1];
+	u8tstFrame[7] = ((uint8_t*)&u32Micros)[0];
 
 	int ws_snd_cnt;
 	for(ws_snd_cnt=0;ws_snd_cnt<sizeof(u8tstFrame);ws_snd_cnt++){
@@ -501,7 +508,7 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 	switch(psPacket->u16FrameControl & 7){
 /* MAC Beacon Reply -----------------------------------------------------------------------------------------  */
 	case 0:
-		if ( (psPacket->u8PayloadLength!=0) && (psPacket->bPacketGood) ) {
+		if ( psPacket->bPacketGood ) {
 			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
 			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
 			vPutC( psPacket->u8PayloadLength + 7 + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
@@ -527,7 +534,6 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 		break;
 /* MAC Data -------------------------------------------------------------------------------------------------- */
 	case 1:
-//		if ( (psPacket->u8PayloadLength!=0) && (psPacket->bPacketGood) ) {
 		if ( (psPacket->bPacketGood) ) {
 			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
 			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
@@ -590,7 +596,7 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 		break;
 /* Ack  ------------------------------------------------------------------------------------------------------ */
 	case 2:
-		if ( (psPacket->u8PayloadLength==0) && (psPacket->bPacketGood) ) {
+		if ( psPacket->bPacketGood ) {
 			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
 			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
 			vPutC( psPacket->u8PayloadLength + 3 + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
@@ -611,7 +617,7 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 	/* Association Request */
 	/* Association Response */
 	case 3:
-		if ( (psPacket->u8PayloadLength!=0) && (psPacket->bPacketGood) ) {
+		if ( psPacket->bPacketGood ) {
 			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
 			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
 			vPutC( psPacket->u8PayloadLength + 2+1+2 + 2*bSrcShortAddr + 8*bSrcExtAddr + 2*(1-bIntraPan)*bSrcExtAddr + 2*bDstShortAddr + 8*bDstExtAddr + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);

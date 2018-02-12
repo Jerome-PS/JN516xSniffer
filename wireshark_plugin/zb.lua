@@ -17,16 +17,21 @@ do
 	dprint("Started lua script on " .. os.date())
 	dprint("========================================")
 
+	local bHaveParamPort = false
+	local bHaveParamChan = false
+
 	dprint("Looking for environment variables")
 	local ecom = os.getenv("ZBL_COMPORT")
 	if(ecom~=nil)then
 		default_settings["comport"] = ecom
+		bHaveParamPort = true
 		dprint("	Found environment COM port " .. ecom)
 	end
 	local echn = os.getenv("ZBL_CHANNEL")
 	if(echn~=nil)then
 		if tonumber(echn) and tonumber(echn)>=11 and tonumber(echn)<=26 then
 			default_settings["channel"] = tonumber(echn)
+			bHaveParamChan = true
 			dprint("	Found environment Channel " .. echn)
 		else
 			info("	Unusable environment variable ZB_CHANNEL '"..echn.."' value must be a number between 11 and 26")
@@ -42,9 +47,13 @@ do
 				dprint("	name="..name.."; value="..value)
 				if name=="comport" then
 					default_settings["comport"] = value
+					dprint("	Found argument COM port " .. value)
+					bHaveParamPort = true
 				elseif name=="channel" then
 					if tonumber(value) and tonumber(value)>=11 and tonumber(value)<=26 then
 						default_settings["channel"] = tonumber(value)
+						bHaveParamChan = true
+						dprint("	Found argument Channel " .. value)
 					else
 						error("	commandline argument '"..name.."' value must be a number between 11 and 26")
 					end
@@ -134,14 +143,20 @@ do
 	p_zbparams104.prefs.comport = Pref.string("Serial port", default_settings.comport, "Serial port used to send commands")
 	p_zbparams104.prefs.channel = Pref.enum("Channel", default_settings.channel, "Zigbee channel to listen on", channel_pref_enum)
 	function p_zbparams104.prefs_changed()
-		dprint("p_zbparams104 prefs_changed called: channel = " .. p_zbparams104.prefs.channel .. ", serial port = " .. p_zbparams104.prefs.comport)
-		default_settings.channel  = p_zbparams104.prefs.channel
-		default_settings.comport  = p_zbparams104.prefs.comport
-		local portname = default_settings.comport
-		local channel  = default_settings.channel
-		local com = assert(io.open(portname, "w"))
-		com:write("C:" .. channel .. "\n")
-		com:close()
+--		dprint("p_zbparams104 prefs_changed called: channel = " .. p_zbparams104.prefs.channel .. ", serial port = " .. p_zbparams104.prefs.comport)
+		if(not bHaveParamPort)then
+			default_settings.comport  = p_zbparams104.prefs.comport
+			dprint("Using saved port " .. default_settings.comport)
+		end
+		if(not bHaveParamChan)then
+			default_settings.channel  = p_zbparams104.prefs.channel
+			dprint("Using saved channel " .. default_settings.channel)
+			local portname = default_settings.comport
+			local channel  = default_settings.channel
+			local com = assert(io.open(portname, "w"))
+			com:write("C:" .. channel .. "\n")
+			com:close()
+		end
 	end
 
 -- Initialization routine
