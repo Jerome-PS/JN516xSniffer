@@ -295,7 +295,7 @@ PRIVATE void WS_Send_Chan_Num(uint8_t u8Channel)
 		u32Fraction = u32AHI_TickTimerRead();
 	}while(u32Seconds!=g_u32Seconds);
 	pcap_rec_hdr.ts_sec  = swap32(u32Seconds);
-	pcap_rec_hdr.ts_usec = swap32(u32Fraction*10/16);		// 16 MHz
+	pcap_rec_hdr.ts_usec = swap32(u32Fraction/16);			// 16 MHz
 	dataFrame[lenval++] = 0x07;								// Unknown packet type
 	dataFrame[lenval++] = 0x00;								// Unknown packet type
 	dataFrame[lenval++] = 0x00;								// Sequence number
@@ -328,7 +328,7 @@ PRIVATE void WS_Send_Syntax_Error(const char * pBuffer)
 		u32Fraction = u32AHI_TickTimerRead();
 	}while(u32Seconds!=g_u32Seconds);
 	pcap_rec_hdr.ts_sec  = swap32(u32Seconds);
-	pcap_rec_hdr.ts_usec = swap32(u32Fraction*10/16);		// 16 MHz
+	pcap_rec_hdr.ts_usec = swap32(u32Fraction/16);			// 16 MHz
 	dataFrame[lenval++] = 0x07;					// Unknown packet type
 	dataFrame[lenval++] = 0x00;					// Unknown packet type
 	dataFrame[lenval++] = 0x01;					// Sequence number
@@ -413,7 +413,7 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 		u32Seconds  = g_u32Seconds;
 		u32Fraction = u32AHI_TickTimerRead();
 	}while(u32Seconds!=g_u32Seconds);
-	u32Micros = u32Fraction*10/16;
+	u32Micros = u32Fraction/16;
 
 /* ========================== Analyze Received Packet ==============================================*/
 	if (psPacket->bPacketGood) {
