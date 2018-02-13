@@ -18,7 +18,7 @@ JENNIC_STACK ?= None
 #DEBUG ?=HW
 #
 # Define which UART to use for debug
-DEBUG_PORT ?= UART0
+DEBUG_PORT ?= UART1
 
 ##############################################################################
 # Define TRACE to use with DBG module
@@ -39,7 +39,7 @@ TOOLCHAIN_PATH      =
 ##############################################################################
 # Application Source files
 
-APPSRC += main.c UartBuffered.c Queue.c Printf.c
+APPSRC += main.c crc-ccitt.c UartBuffered.c Queue.c Printf.c
 #APPSRC += JN516xSniffer.c
 
 # Specify additional Component libraries

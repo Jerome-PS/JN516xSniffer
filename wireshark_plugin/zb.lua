@@ -17,16 +17,21 @@ do
 	dprint("Started lua script on " .. os.date())
 	dprint("========================================")
 
+	local bHaveParamPort = false
+	local bHaveParamChan = false
+
 	dprint("Looking for environment variables")
 	local ecom = os.getenv("ZBL_COMPORT")
 	if(ecom~=nil)then
 		default_settings["comport"] = ecom
+		bHaveParamPort = true
 		dprint("	Found environment COM port " .. ecom)
 	end
 	local echn = os.getenv("ZBL_CHANNEL")
 	if(echn~=nil)then
 		if tonumber(echn) and tonumber(echn)>=11 and tonumber(echn)<=26 then
 			default_settings["channel"] = tonumber(echn)
+			bHaveParamChan = true
 			dprint("	Found environment Channel " .. echn)
 		else
 			info("	Unusable environment variable ZB_CHANNEL '"..echn.."' value must be a number between 11 and 26")
@@ -42,9 +47,13 @@ do
 				dprint("	name="..name.."; value="..value)
 				if name=="comport" then
 					default_settings["comport"] = value
+					dprint("	Found argument COM port " .. value)
+					bHaveParamPort = true
 				elseif name=="channel" then
 					if tonumber(value) and tonumber(value)>=11 and tonumber(value)<=26 then
 						default_settings["channel"] = tonumber(value)
+						bHaveParamChan = true
+						dprint("	Found argument Channel " .. value)
 					else
 						error("	commandline argument '"..name.."' value must be a number between 11 and 26")
 					end
@@ -92,6 +101,8 @@ do
 -- Dissection routine
     function p_zbparams104.dissector(buf,pkt,root)
 --		dprint("[0:2]=" .. buf(0,2):uint())
+		set_color_filter_slot(4, "zbee_zcl")				-- Purple 2
+		set_color_filter_slot(7, "zbee_nwk.cmd.id == 0x08")		-- Green  3 - Link Status
 		if (buf:len() < 2) or (buf(0,2):uint() ~= 0x0700) then
 			orig104:call(buf,pkt,root)
 		else
@@ -103,6 +114,8 @@ do
 
     function p_zbparams127.dissector(buf,pkt,root)
 
+		set_color_filter_slot(4, "zbee_zcl")				-- Purple 2
+		set_color_filter_slot(7, "zbee_nwk.cmd.id == 0x08")		-- Green  3 - Link Status
 		if (buf:len() < 2) or (buf(0,2):uint() ~= 0x0700) then
 			orig127:call(buf,pkt,root)
 		else
@@ -134,14 +147,20 @@ do
 	p_zbparams104.prefs.comport = Pref.string("Serial port", default_settings.comport, "Serial port used to send commands")
 	p_zbparams104.prefs.channel = Pref.enum("Channel", default_settings.channel, "Zigbee channel to listen on", channel_pref_enum)
 	function p_zbparams104.prefs_changed()
-		dprint("p_zbparams104 prefs_changed called: channel = " .. p_zbparams104.prefs.channel .. ", serial port = " .. p_zbparams104.prefs.comport)
-		default_settings.channel  = p_zbparams104.prefs.channel
-		default_settings.comport  = p_zbparams104.prefs.comport
-		local portname = default_settings.comport
-		local channel  = default_settings.channel
-		local com = assert(io.open(portname, "w"))
-		com:write("C:" .. channel .. "\n")
-		com:close()
+--		dprint("p_zbparams104 prefs_changed called: channel = " .. p_zbparams104.prefs.channel .. ", serial port = " .. p_zbparams104.prefs.comport)
+		if(not bHaveParamPort)then
+			default_settings.comport  = p_zbparams104.prefs.comport
+			dprint("Using saved port " .. default_settings.comport)
+		end
+		if(not bHaveParamChan)then
+			default_settings.channel  = p_zbparams104.prefs.channel
+			dprint("Using saved channel " .. default_settings.channel)
+			local portname = default_settings.comport
+			local channel  = default_settings.channel
+			local com = assert(io.open(portname, "w"))
+			com:write("C:" .. channel .. "\n")
+			com:close()
+		end
 	end
 
 -- Initialization routine
@@ -183,14 +202,25 @@ do
 
 	end
 
+	local function zbinit()
+		local portname = default_settings.comport
+		local channel  = default_settings.channel
+		local com = assert(io.open(portname, "w"))
+		dprint("About to send INI:" .. channel .. " on " .. portname)
+		com:write("INI:" .. channel .. "\n")
+--		com:write("STA\n")
+--		dprint("About to send C:" .. channel .. " on " .. portname)
+--		com:write("C:" .. channel .. "\n")
+		com:close()
+	end
 	local function zbstart()
 		local portname = default_settings.comport
 		local channel  = default_settings.channel
 		local com = assert(io.open(portname, "w"))
-		dprint("About to send STA on " .. portname)
-		com:write("STA\n")
-		dprint("About to send C:" .. channel .. " on " .. portname)
-		com:write("C:" .. channel .. "\n")
+		dprint("About to send STA:" .. channel .. " on " .. portname)
+		com:write("STA:".. channel .. "\n")
+--		dprint("About to send C:" .. channel .. " on " .. portname)
+--		com:write("C:" .. channel .. "\n")
 		com:close()
 	end
 	local function zbstop()
@@ -207,10 +237,35 @@ do
 		com:write("TST\n")
 		com:close()
 	end
+	local function zbbrq()
+		local portname = default_settings.comport
+		local com = assert(io.open(portname, "w"))
+		dprint("About to send BRQ on " .. portname)
+		com:write("BRQ\n")
+		com:close()
+	end
+	local function zbsbq()
+		local portname = default_settings.comport
+		local com = assert(io.open(portname, "w"))
+		dprint("About to send SBQ on " .. portname)
+		com:write("SBQ\n")
+		com:close()
+	end
+	local function zb1Mbps()
+		local portname = default_settings.comport
+		local com = assert(io.open(portname, "w"))
+		dprint("About to send BRD:1000000 on " .. portname)
+		com:write("BRD:1000000\n")
+		com:close()
+	end
 
-	register_menu("ZB/ZB Options",dialog_menu,MENU_TOOLS_UNSORTED)
-	register_menu("ZB/ZB Start",zbstart,MENU_TOOLS_UNSORTED)
-	register_menu("ZB/ZB Stop",zbstop,MENU_TOOLS_UNSORTED)
-	register_menu("ZB/ZB Test",zbtest,MENU_TOOLS_UNSORTED)
+--	register_menu("ZB/0. Init",zbinit,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/1. Start",zbstart,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/2. Stop",zbstop,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/3. Options",dialog_menu,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/8. Set 1Mbps",zb1Mbps,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/9. Test",zbtest,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/A. Beacon Request",zbbrq,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/B. Beacon",zbsbq,MENU_TOOLS_UNSORTED)
 end
 
