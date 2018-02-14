@@ -11,9 +11,25 @@ bIsLinux   = False
 bIsmacOS   = False
 bIsPosix   = False
 
+def listcomports():
+	msg = ""
+	try:
+		import serial.tools.list_ports
+		portlist = serial.tools.list_ports.comports()
+		if(len(portlist)<1):
+			msg = "### Error no com port seems to be available!"
+		else:
+			msg = "Found COM ports:"
+			for port in portlist:
+				msg += "\n\t%s\t[%s]" % (port.device, port.description)
+	except:
+		msg = "Could not list com ports"
+		raise
+	return msg
+
 def main(argv):
 	import argparse
-	parser = argparse.ArgumentParser(description="interface between wireshark and a JN516x chip used as a ZigBee traffic sniffer")
+	parser = argparse.ArgumentParser(description="interface between wireshark and a JN516x chip used as a ZigBee traffic sniffer", epilog=listcomports())
 	parser.add_argument("comport", help="serial interface (COMx or /dev/ttyx) to the sniffer")
 	group = parser.add_mutually_exclusive_group()
 	group.add_argument("-ws", "--wireshark", nargs='?', const='#@search', default='#@search', help="launch wireshark at given path")
@@ -75,7 +91,7 @@ def main(argv):
 			raise e
 		
 	wiresharkPath = None
-	if(args.wireshark):
+	if(args.wireshark and not args.no_wireshark):
 		if(args.wireshark != '#@search'):
 			wiresharkPath = args.wireshark
 		else:
@@ -83,8 +99,15 @@ def main(argv):
 				wiresharkPath = 'wireshark'
 			elif(bIsWindows):
 				import winreg
-#				regkey = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, "SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Wireshark.exe")
-				wiresharkPath = winreg.QueryValue(winreg.HKEY_LOCAL_MACHINE, "SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Wireshark.exe")
+				try:
+					wiresharkPath = winreg.QueryValue(winreg.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\Wireshark.exe")
+				except FileNotFoundError as e:
+					print("### Error could not find wireshark in the registry but I was asked to look for it.")
+					print("\tDon't ask me to launch it using the -nws command line option")
+					print("\tOr point me to it using the -ws PATH\\TO\\WireShark.exe command line option")
+					print("\t\t(I can also run WiresharkPortable using this method)")
+					print("ABORTING!")
+					exit(-1)
 
 	if(bIsWindows):
 		pipeRxName = r'\\.\pipe\wiresharkRx'
@@ -146,7 +169,7 @@ def main(argv):
 			print("rx", data)
 			try:
 				if(not pipeRx.bIsOpen):
-					print("Trying to open Rx pipe")
+					print("Trying to open Rx pipe (MCU >> Wireshark)")
 					pipeRx.tryOpen()
 					if(pipeRx.bIsOpen):
 						print("Sending wireshark init sequence")
@@ -174,7 +197,7 @@ def main(argv):
 			ser.flush()
 			if(data==b'\n'):
 #				print("detected CR", cmdbuf)
-				if(cmdbuf==b"BRD:1000000\n"):
+				if(cmdbuf==b"BRD:1000000\n" or cmdbuf==b"BRD:1000000\r\n"):
 					print("Switching to 1Mbaud")
 					ser.baudrate = 1000000
 				cmdbuf = bytearray()
@@ -212,8 +235,8 @@ class PyFIFO():
 
 		if(self.bIsWindows):
 			import win32pipe
-			if(mode=="r"):direction=win32pipe.PIPE_ACCESS_OUTBOUND
-			elif(mode=="w"):direction=win32pipe.PIPE_ACCESS_INBOUND
+			if(mode=="r"):direction=win32pipe.PIPE_ACCESS_INBOUND
+			elif(mode=="w"):direction=win32pipe.PIPE_ACCESS_OUTBOUND
 			self.fileobject = win32pipe.CreateNamedPipe(
 				self.path,
 				direction,
@@ -261,7 +284,10 @@ class PyFIFO():
 
 	def tryOpen(self):
 		if(self.bIsWindows):
-			pass
+			import win32pipe
+			win32pipe.ConnectNamedPipe(self.fileobject, None)
+			self.bIsOpen    = True
+			return True
 		elif(self.bIsPosix):
 			import os
 			if(self.mode=="r"):	mode = os.O_RDONLY
@@ -307,14 +333,26 @@ class PyFIFO():
 
 	def read(self):
 		if(self.bIsWindows):
+			import pywintypes, win32file
+			data = 0
 			try:
 				(hr, data) = win32file.ReadFile(self.fileobject,1) 
 			except pywintypes.error as e:
+				import winerror
 				if(e.winerror==winerror.ERROR_BROKEN_PIPE):
-					win32pipe.DisconnectNamedPipe(pipeTx)
-					win32api.CloseHandle(pipeTx)
-					pipeTx = win32pipe.CreateNamedPipe(r'\\.\pipe\wiresharkTx', win32pipe.PIPE_ACCESS_INBOUND, win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_WAIT, 1, 65536, 65536, 300, None)
-					win32pipe.ConnectNamedPipe(pipeTx, None)
+					import win32pipe, win32api
+					win32pipe.DisconnectNamedPipe(self.fileobject)
+					win32api.CloseHandle(self.fileobject)
+					if(self.mode=="r"):direction=win32pipe.PIPE_ACCESS_INBOUND
+					elif(self.mode=="w"):direction=win32pipe.PIPE_ACCESS_OUTBOUND
+					self.fileobject = win32pipe.CreateNamedPipe(
+						self.path,
+						direction,
+						win32pipe.PIPE_TYPE_MESSAGE | win32pipe.PIPE_WAIT,
+						1, 65536, 65536,
+						300,
+						None)
+					raise FIFOClosedException()
 				else:
 					raise
 			return data
@@ -323,12 +361,12 @@ class PyFIFO():
 #			print("Reading data")
 			data = os.read(self.fileobject, 1)
 			if(len(data)==0): raise FIFOClosedException()
-#			print("Read",data)
 			return data
 
 
 	def write(self, data):
 		if(self.bIsWindows):
+			import win32file
 			win32file.WriteFile(self.fileobject, data) 
 		elif(self.bIsPosix):
 			if(not self.bIsOpen):
