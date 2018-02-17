@@ -1,10 +1,7 @@
-# Win32 Wireshark named pipes example
-# Requires Python for Windows, the Python for Windows Extensions and PySerial:
-# http://www.python.org
-############ PySerial
-# http://sourceforge.net/projects/pywin32/
+#!/usr/bin/env python3
+# Check https://github.com/Jerome-PS/JN516xSniffer for documentation.
 
-# command line example: python Sniff.py COM3 C:\Users\snif\Downloads\WiresharkPortable\WiresharkPortable.exe
+# Windows command line example: python Sniff.py COM3 -wc C:\Users\snif\Downloads\WiresharkPortable\WiresharkPortable.exe
 
 bIsWindows = False
 bIsLinux   = False
@@ -118,7 +115,6 @@ def main(argv):
 	pipeRx = PyFIFO(pipeRxName, "w")
 	pipeTx = PyFIFO(pipeTxName, "r")
 
-	#import win32pipe, win32api, win32file, winerror, pywintypes
 	import subprocess
 	import time
 	import threading
@@ -146,9 +142,6 @@ def main(argv):
 		print("launching " + ' '.join(wireshark_cmd))
 		proc=subprocess.Popen(wireshark_cmd)
 
-	# C3 : LINKTYPE_IEEE802_15_4	    195	DLT_IEEE802_15_4	    IEEE 802.15.4 wireless Personal Area Network, with each packet having the FCS at the end of the frame.
-	# E6 : LINKTYPE_IEEE802_15_4_NOFCS	230	DLT_IEEE802_15_4_NOFCS	IEEE 802.15.4 wireless Personal Area Network, without the FCS at the end of the frame.
-
 	ser.flushInput()
 	ser.flushOutput()
 	time.sleep(.5)
@@ -156,14 +149,6 @@ def main(argv):
 	print("Start loop")
 
 	def rxThread():
-		#connect to pipes
-#		print("Connecting to pipeRx")
-#		pipeRx.open()
-#		initseq = bytearray([0xD4, 0xC3, 0xB2, 0xA1 , 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xE6, 0x00, 0x00, 0x00])
-#		print("writing data", initseq, pipeRx.bIsOpen)
-#		pipeRx.write(initseq)
-#		pipeRx.write(bytearray([0x41]))
-#		print("Written")
 		while 1:
 			data = ser.read() # read one byte
 			print("rx", data)
@@ -174,9 +159,9 @@ def main(argv):
 					if(pipeRx.bIsOpen):
 						print("Sending wireshark init sequence")
 # E6 : LINKTYPE_IEEE802_15_4_NOFCS   230	DLT_IEEE802_15_4_NOFCS   IEEE 802.15.4 wireless Personal Area Network, without the FCS at the end of the frame.
-#						pipeRx.write(bytearray([0xD4, 0xC3, 0xB2, 0xA1 , 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xE6, 0x00, 0x00, 0x00]))
+						pipeRx.write(bytearray([0xD4, 0xC3, 0xB2, 0xA1 , 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xE6, 0x00, 0x00, 0x00]))
 # C3 : LINKTYPE_IEEE802_15_4         195	DLT_IEEE802_15_4         IEEE 802.15.4 wireless Personal Area Network, with each packet having the FCS at the end of the frame.
-						pipeRx.write(bytearray([0xD4, 0xC3, 0xB2, 0xA1 , 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xC3, 0x00, 0x00, 0x00]))
+#						pipeRx.write(bytearray([0xD4, 0xC3, 0xB2, 0xA1 , 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xC3, 0x00, 0x00, 0x00]))
 				if(pipeRx.bIsOpen):
 					pipeRx.write(data)
 			except FIFOClosedException as e:
@@ -196,7 +181,6 @@ def main(argv):
 			ser.write(data) # read one byte
 			ser.flush()
 			if(data==b'\n'):
-#				print("detected CR", cmdbuf)
 				if(cmdbuf==b"BRD:1000000\n" or cmdbuf==b"BRD:1000000\r\n"):
 					print("Switching to 1Mbaud")
 					ser.baudrate = 1000000
@@ -308,28 +292,6 @@ class PyFIFO():
 		import os
 		self.delfifo()
 		os.mkfifo(self.path)
-
-#	def reopen(self):
-#		if(self.bIsWindows):
-#			import win32pipe
-#			win32pipe.ConnectNamedPipe(self.fileobject, None)
-#		elif(self.bIsPosix):
-#			import os
-#			self.delfifo()
-#			os.mkfifo(self.path)
-#			if(self.mode=="r"):	mode = os.O_RDONLY
-#			elif(self.mode=="w"):	mode = os.O_WRONLY | os.O_NONBLOCK
-#			try:
-#				self.fileobject = os.open(self.path, mode)
-#			except OSError as e:
-#				if(e.errno!=6):
-#					raise e
-#				else:
-#					self.bIsOpen    = False
-#					return False
-#			else:
-#				self.bIsOpen    = True
-#				return True
 
 	def read(self):
 		if(self.bIsWindows):

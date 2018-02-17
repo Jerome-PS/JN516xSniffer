@@ -16,8 +16,6 @@
 #define DBG_E_UART_BAUD_RATE_38400	38400
 #define DBG_vUartInit(...)
 
-//#define DD
-
 //#define DEBUG_PROTOCOL
 //#define XIAOMI_SMART_BUTTON
 #define XIAOMI_SMART_DOOR_SENSOR
@@ -243,22 +241,6 @@ PUBLIC void AppColdStart(void)
 	}
 	g_u8Channel = u8JPT_RadioGetChannel();
 	bJPT_RadioSetChannel(g_u8Channel);
-
-#ifdef DD
-	vInitPrintf((void*)vPutC);
-	while(1){
-		uint32_t u32Seconds;
-		uint32_t u32Fraction;
-		uint32_t u32Micros;
-		do{
-			u32Seconds  = g_u32Seconds;
-			u32Fraction = u32AHI_TickTimerRead();
-		}while(u32Seconds!=g_u32Seconds);
-		u32Micros = u32Fraction/16;
-
-		vPrintf("%d.%06d [%d]\r\n", u32Seconds, u32Micros, u32Fraction);
-	}
-#endif
 
 	while(1){
 		if ((g_u8Channel != u8Channelsave) && g_iWSDumpStatus > 0){
@@ -632,17 +614,12 @@ PRIVATE void ClearText_Dump_Packet(tsJPT_PT_Packet * psPacket)
 
 PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 {
-	int FCS			= 0;
-	int FCS_Length 	= 0;
-
 	int cnt;
 	bool_t bSrcShortAddr = FALSE;
 	bool_t bSrcExtAddr = FALSE;
 	bool_t bDstShortAddr = FALSE;
 	bool_t bDstExtAddr = FALSE;
 	bool_t bIntraPan = FALSE;
-
-	if ( FCS ){ FCS_Length = 2; }else{ FCS_Length = 0; }
 
 	uint32_t u32Seconds;
 	uint32_t u32Fraction;
@@ -796,175 +773,9 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 		for(cnt = 0; cnt < psPacket->u8PayloadLength; cnt++){
 			vPutC( psPacket->u8Payload[cnt] );
 		}
-	// FCS
-		if (FCS) { vPutC(0xAA); vPutC(0xAA); }
 	}else {
 		// Will need to inform Wireshark that a packet has been received but not forwarded.
 	}
-
-	
-#if 0
-/* look at frame type */
-	switch(psPacket->u16FrameControl & 7){
-/* MAC Beacon Reply -----------------------------------------------------------------------------------------  */
-	case 0:
-		if ( psPacket->bPacketGood ) {
-			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
-			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
-			vPutC( psPacket->u8PayloadLength + 7 + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-			vPutC( psPacket->u8PayloadLength + 7 + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-	// MAC
-		// FrameControl
-			vPutC(psPacket->u16FrameControl&0xFF); vPutC(psPacket->u16FrameControl>>8);
-		// SequenceNumber
-			vPutC(psPacket->u8SequenceNumber);
-		// Source Pan ID
-			vPutC(psPacket->u16SourcePanID&0xFF); vPutC(psPacket->u16SourcePanID>>8);
-		// Source Short Address
-			vPutC(psPacket->u16SourceShortAddress&0xFF); vPutC(psPacket->u16SourceShortAddress>>8);
-		// Payload
-			for(cnt = 0; cnt < psPacket->u8PayloadLength; cnt++){
-				vPutC( psPacket->u8Payload[cnt] );
-			}
-		// FCS
-			if (FCS) { vPutC(0xAA); vPutC(0xAA); }
-		}else {
-			// Will need to inform Wireshark that a packet has been received but not forwarded.
-		}
-		break;
-/* MAC Data -------------------------------------------------------------------------------------------------- */
-	case 1:
-		if ( (psPacket->bPacketGood) ) {
-			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
-			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
-			
-			int frame_len = 0;
-			frame_len += 2;			// Control field
-			frame_len += 1;			// Sequence numbe
-			if(bDstShortAddr || bDstExtAddr){			frame_len += 2;	}	// Destination PAN (Std 802.15.4-2011 p59)
-			if(bDstShortAddr){					frame_len += 2;	}
-			if(bDstExtAddr){					frame_len += 8;	}
-			if((bIntraPan==0) && (bSrcExtAddr || bSrcShortAddr)){	frame_len += 2;	}
-			if(bSrcShortAddr){					frame_len += 2;	}
-			if(bSrcExtAddr){					frame_len += 8;	}
-			frame_len += psPacket->u8PayloadLength;
-
-			vPutC( frame_len ); vPutC(0); vPutC(0); vPutC(0);
-			vPutC( frame_len ); vPutC(0); vPutC(0); vPutC(0);
-	// MAC
-		// FrameControl
-			vPutC(psPacket->u16FrameControl&0xFF); vPutC(psPacket->u16FrameControl>>8);
-		// SequenceNumber
-			vPutC(psPacket->u8SequenceNumber);
-		// Destination Pan ID
-			if(bDstShortAddr || bDstExtAddr){
-				vPutC(psPacket->u16DestinationPanID&0xFF); vPutC(psPacket->u16DestinationPanID>>8);
-			}
-		// Destination Address
-			if(bDstShortAddr){
-			// Destination Short Address
-				vPutC(psPacket->u16DestinationShortAddress&0xFF); vPutC(psPacket->u16DestinationShortAddress>>8);
-			}
-			if ( bDstExtAddr ) {
-			// Destination Long Address
-				uint8 *data = (uint8 *)&(psPacket->u64DestinationExtendedAddress);
-				vPutC(data[7]); vPutC(data[6]); vPutC(data[5]); vPutC(data[4]); vPutC(data[3]); vPutC(data[2]); vPutC(data[1]); vPutC(data[0]);
-			}
-		// Source Pan ID
-			if ( (bIntraPan==0) && (bSrcExtAddr || bSrcShortAddr) ) {
-				vPutC(psPacket->u16SourcePanID&0xFF); vPutC(psPacket->u16SourcePanID>>8);
-			}
-		// Source Address
-			if(bSrcShortAddr){
-			// Source Short Address
-				vPutC(psPacket->u16SourceShortAddress&0xFF); vPutC(psPacket->u16SourceShortAddress>>8);
-			}
-			if ( bSrcExtAddr ) {
-			// Source Long Address
-				uint8 *data = (uint8 *)&(psPacket->u64SourceExtendedAddress);
-				vPutC(data[7]); vPutC(data[6]); vPutC(data[5]); vPutC(data[4]); vPutC(data[3]); vPutC(data[2]); vPutC(data[1]); vPutC(data[0]);
-			}
-		// Payload
-			for(cnt = 0; cnt < psPacket->u8PayloadLength; cnt++){
-				vPutC( psPacket->u8Payload[cnt] );
-			}
-		// FCS
-			if (FCS) { vPutC(0xAA); vPutC(0xAA); }
-		}else {
-			// Will need to inform Wireshark that a packet has been received but not forwarded.
-		}
-		break;
-/* Ack  ------------------------------------------------------------------------------------------------------ */
-	case 2:
-		if ( psPacket->bPacketGood ) {
-			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
-			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
-			vPutC( psPacket->u8PayloadLength + 3 + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-			vPutC( psPacket->u8PayloadLength + 3 + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-	// MAC
-		// FrameControl
-			vPutC(psPacket->u16FrameControl&0xFF); vPutC(psPacket->u16FrameControl>>8);
-		// SequenceNumber
-			vPutC(psPacket->u8SequenceNumber);
-		// FCS
-			if (FCS) { vPutC(0xAA); vPutC(0xAA); }
-		}else {
-			// Will need to inform Wireshark that a packet has been received but not forwarded.
-		}
-		break;
-/* MAC Command  ---------------------------------------------------------------------------------------------- */
-	/* Beacon Request */
-	/* Association Request */
-	/* Association Response */
-	case 3:
-		if ( psPacket->bPacketGood ) {
-			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
-			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
-			vPutC( psPacket->u8PayloadLength + 2+1+2 + 2*bSrcShortAddr + 8*bSrcExtAddr + 2*(1-bIntraPan)*bSrcExtAddr + 2*bDstShortAddr + 8*bDstExtAddr + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-			vPutC( psPacket->u8PayloadLength + 2+1+2 + 2*bSrcShortAddr + 8*bSrcExtAddr + 2*(1-bIntraPan)*bSrcExtAddr + 2*bDstShortAddr + 8*bDstExtAddr + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-	// MAC
-		// FrameControl
-			vPutC(psPacket->u16FrameControl&0xFF); vPutC(psPacket->u16FrameControl>>8);
-		// SequenceNumber
-			vPutC(psPacket->u8SequenceNumber);
-		// Destination Pan ID
-			vPutC(psPacket->u16DestinationPanID&0xFF); vPutC(psPacket->u16DestinationPanID>>8);
-		// Destination  Address
-			if ( bDstShortAddr ) {
-				vPutC(psPacket->u16DestinationShortAddress&0xFF); vPutC(psPacket->u16DestinationShortAddress>>8);
-			}
-			if ( bDstExtAddr ) {
-				uint8 *data = (uint8 *)&(psPacket->u64DestinationExtendedAddress);
-				vPutC(data[7]); vPutC(data[6]); vPutC(data[5]); vPutC(data[4]); vPutC(data[3]); vPutC(data[2]); vPutC(data[1]); vPutC(data[0]);
-			}
-		// Source Pan ID
-			if ( (bIntraPan==0) && (bSrcExtAddr) ) {
-				vPutC(psPacket->u16SourcePanID&0xFF); vPutC(psPacket->u16SourcePanID>>8);
-			}
-		// Source  Address
-			if ( bSrcShortAddr ) {
-				vPutC(psPacket->u16SourceShortAddress&0xFF); vPutC(psPacket->u16SourceShortAddress>>8);
-			}
-			if ( bSrcExtAddr ) {
-				uint8 *data = (uint8 *)&(psPacket->u64SourceExtendedAddress);
-				vPutC(data[7]); vPutC(data[6]); vPutC(data[5]); vPutC(data[4]); vPutC(data[3]); vPutC(data[2]); vPutC(data[1]); vPutC(data[0]);
-			}
-		// Payload
-			for(cnt = 0; cnt < psPacket->u8PayloadLength; cnt++){
-				vPutC( psPacket->u8Payload[cnt] );
-			}
-		// FCS
-			if (FCS) { vPutC(0xAA); vPutC(0xAA); }
-		}else {
-			// Will need to inform Wireshark that a packet has been received but not forwarded.
-		}
-		break;
-/* Reserved  ------------------------------------------------------------------------------------------------  */
-	default:
-		// Will need to inform Wireshark that an unsupported packet has been received but not forwarded.
-		break;
-	}
-#endif
 }
 
 uint32_t g_u32IEEESeqNumber = 36;
@@ -991,7 +802,7 @@ PRIVATE void ZB_Send_Beacon_Request(void)
 	sSendPacket.u16DestinationPanID = 0xFFFF;
 	sSendPacket.u16DestinationShortAddress = 0xFFFF;
 	sSendPacket.u8Payload[len++] = 0x07;			// Command Identifier : Beacon Request
-//!!!
+#if 0
 	uint16_t u16fcs = 0;
 	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl & 0xFF);				// Little Endian
 	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl >> 8);
@@ -1004,7 +815,7 @@ PRIVATE void ZB_Send_Beacon_Request(void)
 
 	sSendPacket.u8Payload[len++] = u16fcs & 0xFF;		// FCS
 	sSendPacket.u8Payload[len++] = u16fcs >> 8;		// FCS
-
+#endif
 	sSendPacket.u8PayloadLength = len;
 
 	sSendPacket.bPacketGood = 1;
@@ -1050,7 +861,7 @@ void DoCoordJob(tsJPT_PT_Packet * psPacket)
 				sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
 				sSendPacket.u8Payload[len++] = 0x00;			// Update ID
 
-//!!!
+#if 0
 				uint16_t u16fcs = 0;
 				u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl & 0xFF);				// Little Endian
 				u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl >> 8);
@@ -1063,7 +874,7 @@ void DoCoordJob(tsJPT_PT_Packet * psPacket)
 
 				sSendPacket.u8Payload[len++] = u16fcs & 0xFF;		// FCS
 				sSendPacket.u8Payload[len++] = u16fcs >> 8;		// FCS
-
+#endif
 				sSendPacket.u8PayloadLength = len;
 
 				sSendPacket.bPacketGood = 1;
@@ -1102,7 +913,7 @@ PRIVATE void ZB_Send_Beacon(void)
 	sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
 	sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
 	sSendPacket.u8Payload[len++] = 0x00;			// Update ID
-//!!!
+#if 0
 	uint16_t u16fcs = 0;
 	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl & 0xFF);				// Little Endian
 	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl >> 8);
@@ -1115,7 +926,7 @@ PRIVATE void ZB_Send_Beacon(void)
 
 	sSendPacket.u8Payload[len++] = u16fcs & 0xFF;		// FCS
 	sSendPacket.u8Payload[len++] = u16fcs >> 8;		// FCS
-
+#endif
 	sSendPacket.u8PayloadLength = len;
 
 	sSendPacket.bPacketGood = 1;
@@ -1131,6 +942,7 @@ PRIVATE void ZB_Send_Ack(uint8_t seqnum)
 // IEEE 802.15.4
 	sSendPacket.u16FrameControl = 2;			// Ack
 	sSendPacket.u8SequenceNumber = seqnum;
+#if 0
 	uint16_t u16fcs = 0;
 	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl & 0xFF);				// Little Endian
 	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl >> 8);
@@ -1138,7 +950,7 @@ PRIVATE void ZB_Send_Ack(uint8_t seqnum)
 
 	sSendPacket.u8Payload[len++] = u16fcs & 0xFF;		// FCS
 	sSendPacket.u8Payload[len++] = u16fcs >> 8;		// FCS
-
+#endif
 	sSendPacket.u8PayloadLength = len;
 
 	sSendPacket.bPacketGood = 1;
@@ -1177,7 +989,7 @@ PRIVATE void ZB_Send_Asso_Resp(void)
 	sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
 	sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
 	sSendPacket.u8Payload[len++] = 0x00;			// Update ID
-//!!!
+#if 0
 	uint16_t u16fcs = 0;
 	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl & 0xFF);				// Little Endian
 	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl >> 8);
@@ -1190,7 +1002,7 @@ PRIVATE void ZB_Send_Asso_Resp(void)
 
 	sSendPacket.u8Payload[len++] = u16fcs & 0xFF;		// FCS
 	sSendPacket.u8Payload[len++] = u16fcs >> 8;		// FCS
-
+#endif
 	sSendPacket.u8PayloadLength = len;
 
 	sSendPacket.bPacketGood = 1;
