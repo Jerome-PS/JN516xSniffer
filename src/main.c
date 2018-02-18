@@ -1,6 +1,6 @@
 #include <jendefs.h>
 #include <AppHardwareApi.h>
-#include <AppApi.h>
+#include <MMAC.h>
 #include <JPT.h>
 #include <string.h>
 #include "Printf.h"
@@ -139,10 +139,11 @@ PRIVATE void ZB_Send_Ack(uint8_t seqnum);
 PRIVATE void ZB_Send_Asso_Resp(void);
 PRIVATE void ZB_JumpChannel(void);
 
-PRIVATE MAC_DcfmIndHdr_s * prMlmeGetBuffer(void * pParam);
-PRIVATE void prMlmeCallback(void * pParam, MAC_DcfmIndHdr_s *);
-PRIVATE MAC_DcfmIndHdr_s * prMcpsGetBuffer(void *);
-PRIVATE void prMcpsCallback(void *, MAC_DcfmIndHdr_s *);
+PRIVATE void vMMAC_Handler(uint32 u32Param);
+#define NB_PHY_BUFFERS	4
+tsPhyFrame PHYBuffer[NB_PHY_BUFFERS];
+volatile uint32_t g_u32PHYBufRIdx = 0;
+volatile uint32_t g_u32PHYBufWIdx = 0;
 
 /****************************************************************************/
 /***        Exported Functions                                            ***/
@@ -150,11 +151,11 @@ PRIVATE void prMcpsCallback(void *, MAC_DcfmIndHdr_s *);
 PUBLIC void AppColdStart(void)
 {
 	uint32 u32Chip_Id = 0;(void)u32Chip_Id;
-	uint32_t u32StackVersion = 0;(void)u32Chip_Id;
 	uint8 u8Channelsave = 0;
 	tsJPT_PT_Packet sPacket;
 	char bCharBuffer[64] = "";
 	int iCharBufferPtr = 0;
+	tsExtAddr sMacAddr;
 
 	/* Turn off debugger */
 	*(volatile uint32 *)0x020000a0 = 0;
@@ -210,37 +211,16 @@ PUBLIC void AppColdStart(void)
 	vPrintf("Cleartext log start\n");
 #endif
 
-	u32StackVersion = u32AppApiInit(prMlmeGetBuffer, prMlmeCallback, NULL, prMcpsGetBuffer, prMcpsCallback, NULL);
-	vPrintf("Stack version: %d.%d\n", u32StackVersion >> 16, u32StackVersion & 0xFFFF);
-
-	void      *mac;
-	MAC_Pib_s *pib;	
-	MAC_MlmeReqRsp_s  mlmereq;
-	MAC_MlmeSyncCfm_s mlmecfm;
-	/* get mac and pib handles */
-	mac   = pvAppApiGetMacHandle();
-	pib   = MAC_psPibGetHandle(mac);
-
-// Reset?
-	MAC_vPibSetShortAddr(mac, 0x0001);		// A voir
-//	MAC_vPibSetPromiscuousMode(mac, TRUE, TRUE);
-	memcpy(&pib->sCoordExtAddr, pvAppApiGetMacAddrLocation(), sizeof(MAC_ExtAddr_s));
-	mlmereq.u8Type = MAC_MLME_REQ_START;
-	mlmereq.u8ParamLength = sizeof(MAC_MlmeReqScan_s);
-	mlmereq.uParam.sReqStart.u16PanId          = 0xCAFE;
-	mlmereq.uParam.sReqStart.u8Channel         = g_u8Channel;
-	mlmereq.uParam.sReqStart.u8BeaconOrder     = 15;
-	mlmereq.uParam.sReqStart.u8SuperframeOrder = 15;
-	mlmereq.uParam.sReqStart.u8PanCoordinator  = TRUE;
-	mlmereq.uParam.sReqStart.u8BatteryLifeExt  = FALSE;
-	mlmereq.uParam.sReqStart.u8Realignment     = FALSE;
-	mlmereq.uParam.sReqStart.u8SecurityEnable  = FALSE;
-	vAppApiMlmeRequest(&mlmereq, &mlmecfm);
-	vPrintf("    vAppApiMlmeRequest returned %d\n", mlmecfm.uParam.sCfmStart.u8Status);		// MAC_Enum_e -> MAC_ENUM_SUCCESS = 0
-	MAC_vPibSetPromiscuousMode(mac, TRUE, FALSE);
-    /* Enable receiver to be on when idle */
-    MAC_vPibSetRxOnWhenIdle(mac, TRUE, FALSE);
-
+	vMMAC_Enable();
+	vMMAC_EnableInterrupts(vMMAC_Handler);
+	vMMAC_ConfigureInterruptSources(E_MMAC_INT_TX_COMPLETE | E_MMAC_INT_RX_HEADER /* | E_MMAC_INT_RX_COMPLETE */);
+	vMMAC_ConfigureRadio();
+	vMMAC_SetChannel(g_u8Channel);
+	vMMAC_GetMacAddress(&sMacAddr);
+	vPrintf("MAC Address: %02x %02x %02x %02x %02x %02x %02x %02x", 
+		(sMacAddr.u32H >> 24) & 0xFF, (sMacAddr.u32H >> 16) & 0xFF, (sMacAddr.u32H >>  8) & 0xFF, (sMacAddr.u32H >>  0) & 0xFF,
+		(sMacAddr.u32L >> 24) & 0xFF, (sMacAddr.u32L >> 16) & 0xFF, (sMacAddr.u32L >>  8) & 0xFF, (sMacAddr.u32L >>  0) & 0xFF);
+	vMMAC_StartPhyReceive(&PHYBuffer[g_u32PHYBufWIdx], E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
 
 #ifdef HEARTBEAT_LED
 	vAHI_DioSetDirection(0x00000000, LED_PIN_BIT);		// Set DIO11 as output (LED)
@@ -282,19 +262,26 @@ PUBLIC void AppColdStart(void)
 		if ((g_u8Channel != u8Channelsave) && g_iWSDumpStatus > 0){
 			WS_Send_Chan_Num(g_u8Channel);
 			u8Channelsave = g_u8Channel;
+			vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
 		}
-/*		if(bJPT_PacketRx(g_u8Channel, &sPacket)){
-#ifdef DEBUG_PROTOCOL
-			ClearText_Dump_Packet(&sPacket);
-#else
-			if(g_iWSDumpStatus > 0){
-				WS_Dump_Packet(&sPacket);
+
+		uint32_t u32PHYBufRIdx = g_u32PHYBufRIdx;
+		if(g_u32PHYBufWIdx!=u32PHYBufRIdx){
+//			if(g_iWSDumpStatus > 0){
+//				WS_Dump_Packet(&sPacket);
+//			}
+			vPrintf("    Length: %d\n", PHYBuffer[u32PHYBufRIdx].u8PayloadLength);
+			int cnt;
+			for(cnt=0;cnt<PHYBuffer[u32PHYBufRIdx].u8PayloadLength;cnt++){
+				vPrintf("%02x ", PHYBuffer[u32PHYBufRIdx].uPayload.au8Byte[cnt]);
 			}
-#endif
+			vPrintf("\n");
+			g_u32PHYBufRIdx = (u32PHYBufRIdx + 1) % NB_PHY_BUFFERS;
+
 #if defined(DO_COORD_JOB)
 			DoCoordJob(&sPacket);
 #endif
-		}*/
+		}
 
 #ifdef HEARTBEAT_LED
 		static int t_r = -1;
@@ -393,106 +380,22 @@ PUBLIC void AppWarmStart(void)
 	AppColdStart();
 }
 
-// MAC_MlmeDcfmIndType_e
-const char * MAC_MlmeDcfmIndType2Str(uint8_t type)
+PRIVATE void vMMAC_Handler(uint32 u32Param)
 {
-	switch(type){
-	case MAC_MLME_DCFM_SCAN:			return "MAC_MLME_DCFM_SCAN";
-	case MAC_MLME_DCFM_GTS:				return "MAC_MLME_DCFM_GTS";
-	case MAC_MLME_DCFM_ASSOCIATE:		return "MAC_MLME_DCFM_ASSOCIATE";
-	case MAC_MLME_DCFM_DISASSOCIATE:	return "MAC_MLME_DCFM_DISASSOCIATE";
-	case MAC_MLME_DCFM_POLL:			return "MAC_MLME_DCFM_POLL";
-	case MAC_MLME_DCFM_RX_ENABLE:		return "MAC_MLME_DCFM_RX_ENABLE";
-	case MAC_MLME_IND_ASSOCIATE:		return "MAC_MLME_IND_ASSOCIATE";
-	case MAC_MLME_IND_DISASSOCIATE:		return "MAC_MLME_IND_DISASSOCIATE";
-	case MAC_MLME_IND_SYNC_LOSS:		return "MAC_MLME_IND_SYNC_LOSS";
-	case MAC_MLME_IND_GTS:				return "MAC_MLME_IND_GTS";
-	case MAC_MLME_IND_BEACON_NOTIFY:	return "MAC_MLME_IND_BEACON_NOTIFY";
-	case MAC_MLME_IND_COMM_STATUS:		return "MAC_MLME_IND_COMM_STATUS";
-	case MAC_MLME_IND_ORPHAN:			return "MAC_MLME_IND_ORPHAN";
-#ifdef TOF_ENABLED
-	case MAC_MLME_DCFM_TOFPOLL:			return "MAC_MLME_DCFM_TOFPOLL";
-	case MAC_MLME_DCFM_TOFPRIME:		return "MAC_MLME_DCFM_TOFPRIME";
-	case MAC_MLME_DCFM_TOFDATAPOLL:		return "MAC_MLME_DCFM_TOFDATAPOLL";
-	case MAC_MLME_DCFM_TOFDATA:			return "MAC_MLME_DCFM_TOFDATA";
-	case MAC_MLME_IND_TOFPOLL:			return "MAC_MLME_IND_TOFPOLL";
-	case MAC_MLME_IND_TOFPRIME:			return "MAC_MLME_IND_TOFPRIME";
-	case MAC_MLME_IND_TOFDATAPOLL:		return "MAC_MLME_IND_TOFDATAPOLL";
-	case MAC_MLME_IND_TOFDATA:			return "MAC_MLME_IND_TOFDATA";
-#endif
-#if defined(DEBUG) && defined(EMBEDDED)
-	case MAC_MLME_IND_VS_DEBUG_INFO:	return "MAC_MLME_IND_VS_DEBUG_INFO";
-	case MAC_MLME_IND_VS_DEBUG_WARN:	return "MAC_MLME_IND_VS_DEBUG_WARN";
-	case MAC_MLME_IND_VS_DEBUG_ERROR:	return "MAC_MLME_IND_VS_DEBUG_ERROR";
-	case MAC_MLME_IND_VS_DEBUG_FATAL:	return "MAC_MLME_IND_VS_DEBUG_FATAL";
-#endif /* defined(DEBUG) && defined(EMBEDDED) */
-	case MAC_MLME_INVALID:				return "MAC_MLME_INVALID";
-	default:							return "Unknown MLME message type!";
-	}
-}
-
-// MAC_McpsDcfmIndType_e
-const char * MAC_McpsDcfmIndType2Str(uint8_t type)
-{
-	switch(type){
-	case MAC_MCPS_DCFM_DATA:		return "MAC_MCPS_DCFM_DATA";
-	case MAC_MCPS_DCFM_PURGE:		return "MAC_MCPS_DCFM_PURGE";
-	case MAC_MCPS_IND_DATA:			return "MAC_MCPS_IND_DATA";
-	default:						return "Unknown MCPS message type!";
-	}
-}
-
-PRIVATE MAC_MlmeDcfmInd_s sMlmeBuffer;
-PRIVATE MAC_DcfmIndHdr_s * prMlmeGetBuffer(void * pParam)
-{
-	vPrintf("prMlmeGetBuffer\n");
-	return (MAC_DcfmIndHdr_s *)&sMlmeBuffer;
-}
-PRIVATE void prMlmeCallback(void * pParam, MAC_DcfmIndHdr_s * pBuf)
-{
-	vPrintf("prMlmeCallback\n");
-	vPrintf("    Type:   %d (%s)\n", pBuf->u8Type, MAC_MlmeDcfmIndType2Str(pBuf->u8Type));
-	vPrintf("    Length: %d\n", pBuf->u8ParamLength);
-}
-
-PRIVATE MAC_McpsDcfmInd_s sMcpsBuffer;
-PRIVATE MAC_DcfmIndHdr_s * prMcpsGetBuffer(void * pParam)
-{
-	vPrintf("prMcpsGetBuffer\n");
-	return (MAC_DcfmIndHdr_s *)&sMcpsBuffer;
-}
-PRIVATE void prMcpsCallback(void * pParam, MAC_DcfmIndHdr_s * pBuf)
-{
-	vPrintf("prMcpsCallback\n");
-	vPrintf("    Type:   %d (%s)\n", pBuf->u8Type, MAC_McpsDcfmIndType2Str(pBuf->u8Type));
-	vPrintf("    Length: %d\n", pBuf->u8ParamLength);
-	if(pBuf->u8Type==MAC_MCPS_IND_DATA){
-		MAC_McpsDcfmIndParam_u * pIndFrame = (MAC_McpsDcfmIndParam_u*)pBuf;
-		MAC_RxFrameData_s * pDataFrame = &pIndFrame->sIndData.sFrame;
-		vPrintf("    Payload Length: %d\n", pDataFrame->u8SduLength);
-		int cnt;
-//		for(cnt=0;cnt<pDataFrame->u8SduLength;cnt++){
-		for(cnt=0;cnt<MAC_MAX_DATA_PAYLOAD_LEN;cnt++){
-			vPrintf("%02x ", pDataFrame->au8Sdu[cnt]);
+//	E_MMAC_INT_TX_COMPLETE
+//	E_MMAC_INT_RX_HEADER
+//	E_MMAC_INT_RX_COMPLETE
+	if(u32Param & E_MMAC_INT_RX_HEADER){
+		uint32_t u32NextWIdx = (g_u32PHYBufWIdx+1) % NB_PHY_BUFFERS;
+		if(u32NextWIdx==g_u32PHYBufRIdx){
+			vPrintf("RX error, buffer overflow!\n");
+		}else{
+			vMMAC_StartPhyReceive(&PHYBuffer[u32NextWIdx], E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+			g_u32PHYBufWIdx = u32NextWIdx;
 		}
-		vPrintf("\n");
-		vPrintf("    Timestamp:      %d\n", pDataFrame->u32Timestamp);
+	}else{
+		vPrintf("vMMAC_Handler(%08x)\n", u32Param);
 	}
-}
-/*
-void prMlmeCallback(void)
-{
-	vPrintf("prMlmeCallback\n");
-}
-
-void prMcpsCallback(void)
-{
-	vPrintf("prMcpsCallback\n");
-}
-*/
-void prHwCallback(void)
-{
-	vPrintf("prHwCallback\n");
 }
 
 #define exPutC(c)	vUartWrite(UART_TO_PC, c)
