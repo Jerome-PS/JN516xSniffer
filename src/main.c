@@ -1,5 +1,6 @@
 #include <jendefs.h>
 #include <AppHardwareApi.h>
+#include <AppApi.h>
 #include <JPT.h>
 #include <string.h>
 #include "Printf.h"
@@ -16,7 +17,7 @@
 #define DBG_E_UART_BAUD_RATE_38400	38400
 #define DBG_vUartInit(...)
 
-//#define DEBUG_PROTOCOL
+#define DEBUG_PROTOCOL
 //#define XIAOMI_SMART_BUTTON
 #define XIAOMI_SMART_DOOR_SENSOR
 #define HEARTBEAT_LED
@@ -82,13 +83,10 @@ uint8 au8UartRxBuffer[100];
 uint8 au8Uart1TxBuffer[100];
 uint8 au8Uart1RxBuffer[100];
 
-uint32 u32RadioMode           = E_JPT_MODE_LOPOWER;
-uint32 u32ModuleRadioMode     = E_JPT_MODE_LOPOWER;
-
 uint8 u8TxPowerAdj	  = 0;
 uint8 u8Attenuator3dB = 0;
 
-uint8 g_u8Channel = 0;
+uint8 g_u8Channel = STARTUP_CHANNEL;
 
 volatile uint32_t g_u32Seconds = 0;
 volatile uint32_t g_u32BaudRateCalced = 0;
@@ -141,17 +139,18 @@ PRIVATE void ZB_Send_Ack(uint8_t seqnum);
 PRIVATE void ZB_Send_Asso_Resp(void);
 PRIVATE void ZB_JumpChannel(void);
 
+PRIVATE MAC_DcfmIndHdr_s * prMlmeGetBuffer(void * pParam);
+PRIVATE void prMlmeCallback(void * pParam, MAC_DcfmIndHdr_s *);
+PRIVATE MAC_DcfmIndHdr_s * prMcpsGetBuffer(void *);
+PRIVATE void prMcpsCallback(void *, MAC_DcfmIndHdr_s *);
+
 /****************************************************************************/
 /***        Exported Functions                                            ***/
 /****************************************************************************/
 PUBLIC void AppColdStart(void)
 {
-	uint32 u32JPT_Ver = 0;(void)u32JPT_Ver;
-	uint32 u32JPT_RadioModes = 0;(void)u32JPT_RadioModes;
 	uint32 u32Chip_Id = 0;(void)u32Chip_Id;
-#if (defined JENNIC_CHIP_JN5169)
-	uint32 u32RadioParamVersion;
-#endif
+	uint32_t u32StackVersion = 0;(void)u32Chip_Id;
 	uint8 u8Channelsave = 0;
 	tsJPT_PT_Packet sPacket;
 	char bCharBuffer[64] = "";
@@ -160,14 +159,38 @@ PUBLIC void AppColdStart(void)
 	/* Turn off debugger */
 	*(volatile uint32 *)0x020000a0 = 0;
 
+    /* Disable watchdog if enabled by default */
+#ifdef WATCHDOG_ENABLED
 	vAHI_WatchdogStop();
-
-	u32JPT_Ver = u32JPT_Init();                 /* initialise production test API */
-#if (defined JENNIC_CHIP_JN5169)
-	vJPT_GetRadioConfig(&u32RadioParamVersion);
 #endif
 
-	u32AHI_Init();                              /* initialise hardware API */
+#if 0
+    /* Setup interface to MAC */
+    (void)u32AHI_Init();                              /* initialise hardware API */
+    u32StackVersion = u32AppQApiInit(NULL, NULL, NULL);
+
+    /* Initialise coordinator state */
+    sCoordinatorData.eState = E_STATE_IDLE;
+    sCoordinatorData.u8TxPacketSeqNb  = 0;
+    sCoordinatorData.u8RxPacketSeqNb  = 0;
+    sCoordinatorData.u16NbrEndDevices = 0;
+
+    /* Set up the MAC handles. Must be called AFTER u32AppQApiInit() */
+    s_pvMac = pvAppApiGetMacHandle();
+    s_psMacPib = MAC_psPibGetHandle(s_pvMac);
+
+    /* Set Pan ID and short address in PIB (also sets match registers in hardware) */
+    MAC_vPibSetPanId(s_pvMac, PAN_ID);
+    MAC_vPibSetShortAddr(s_pvMac, COORDINATOR_ADR);
+
+    /* Enable receiver to be on when idle */
+    MAC_vPibSetRxOnWhenIdle(s_pvMac, TRUE, FALSE);
+
+    /* Allow nodes to associate */
+    s_psMacPib->bAssociationPermit = 1;
+#endif
+
+    (void)u32AHI_Init();                              /* initialise hardware API */
 
 	volatile int n;
 	for(n=0;n<100000;n++){}      // wait for JN516X to move onto 32MHz Crystal
@@ -186,6 +209,38 @@ PUBLIC void AppColdStart(void)
 	vInitPrintf((void*)vPutC);	
 	vPrintf("Cleartext log start\n");
 #endif
+
+	u32StackVersion = u32AppApiInit(prMlmeGetBuffer, prMlmeCallback, NULL, prMcpsGetBuffer, prMcpsCallback, NULL);
+	vPrintf("Stack version: %d.%d\n", u32StackVersion >> 16, u32StackVersion & 0xFFFF);
+
+	void      *mac;
+	MAC_Pib_s *pib;	
+	MAC_MlmeReqRsp_s  mlmereq;
+	MAC_MlmeSyncCfm_s mlmecfm;
+	/* get mac and pib handles */
+	mac   = pvAppApiGetMacHandle();
+	pib   = MAC_psPibGetHandle(mac);
+
+// Reset?
+	MAC_vPibSetShortAddr(mac, 0x0001);		// A voir
+//	MAC_vPibSetPromiscuousMode(mac, TRUE, TRUE);
+	memcpy(&pib->sCoordExtAddr, pvAppApiGetMacAddrLocation(), sizeof(MAC_ExtAddr_s));
+	mlmereq.u8Type = MAC_MLME_REQ_START;
+	mlmereq.u8ParamLength = sizeof(MAC_MlmeReqScan_s);
+	mlmereq.uParam.sReqStart.u16PanId          = 0xCAFE;
+	mlmereq.uParam.sReqStart.u8Channel         = g_u8Channel;
+	mlmereq.uParam.sReqStart.u8BeaconOrder     = 15;
+	mlmereq.uParam.sReqStart.u8SuperframeOrder = 15;
+	mlmereq.uParam.sReqStart.u8PanCoordinator  = TRUE;
+	mlmereq.uParam.sReqStart.u8BatteryLifeExt  = FALSE;
+	mlmereq.uParam.sReqStart.u8Realignment     = FALSE;
+	mlmereq.uParam.sReqStart.u8SecurityEnable  = FALSE;
+	vAppApiMlmeRequest(&mlmereq, &mlmecfm);
+	vPrintf("    vAppApiMlmeRequest returned %d\n", mlmecfm.uParam.sCfmStart.u8Status);		// MAC_Enum_e -> MAC_ENUM_SUCCESS = 0
+	MAC_vPibSetPromiscuousMode(mac, TRUE, FALSE);
+    /* Enable receiver to be on when idle */
+    MAC_vPibSetRxOnWhenIdle(mac, TRUE, FALSE);
+
 
 #ifdef HEARTBEAT_LED
 	vAHI_DioSetDirection(0x00000000, LED_PIN_BIT);		// Set DIO11 as output (LED)
@@ -220,34 +275,15 @@ PUBLIC void AppColdStart(void)
 	/* read Chip_ID register */
 	u32Chip_Id= READ_REG32(0x020000fc);
 
-	u32RadioMode = E_JPT_MODE_LOPOWER;
-	u32ModuleRadioMode = E_JPT_MODE_LOPOWER;
 	u8TxPowerAdj = 0;
 	u8Attenuator3dB = 0;
-#ifdef RXPOWERADJUST_SUPPORT
-	vJPT_SetMaxInputLevel(E_MAX_INP_LEVEL_10dB);
-#endif	//def RXPOWERADJUST_SUPPORT
-
-	/* enable protocol */
-	bJPT_RadioInit(u32RadioMode);
-
-	/* force channel change in bJPT_PacketRx */
-	g_u8Channel = u8JPT_RadioGetChannel();
-	if (g_u8Channel != STARTUP_CHANNEL){
-		bJPT_PacketRx(STARTUP_CHANNEL, &sPacket);
-	}else{
-		bJPT_PacketRx(11, &sPacket);
-		bJPT_PacketRx(STARTUP_CHANNEL, &sPacket);
-	}
-	g_u8Channel = u8JPT_RadioGetChannel();
-	bJPT_RadioSetChannel(g_u8Channel);
 
 	while(1){
 		if ((g_u8Channel != u8Channelsave) && g_iWSDumpStatus > 0){
 			WS_Send_Chan_Num(g_u8Channel);
 			u8Channelsave = g_u8Channel;
 		}
-		if(bJPT_PacketRx(g_u8Channel, &sPacket)){
+/*		if(bJPT_PacketRx(g_u8Channel, &sPacket)){
 #ifdef DEBUG_PROTOCOL
 			ClearText_Dump_Packet(&sPacket);
 #else
@@ -258,7 +294,7 @@ PUBLIC void AppColdStart(void)
 #if defined(DO_COORD_JOB)
 			DoCoordJob(&sPacket);
 #endif
-		}
+		}*/
 
 #ifdef HEARTBEAT_LED
 		static int t_r = -1;
@@ -293,9 +329,6 @@ PUBLIC void AppColdStart(void)
 				if(bCharBuffer[0]=='C' && bCharBuffer[1]==':' && isdigit(bCharBuffer[2]) && isdigit(bCharBuffer[3])){
 					int chan = (bCharBuffer[2] - '0')*10 + bCharBuffer[3] - '0';
 					if(chan>=11 && chan<=26){
-					   	bJPT_PacketRx(chan, &sPacket);
-						g_u8Channel = u8JPT_RadioGetChannel();
-						bJPT_RadioSetChannel(g_u8Channel);
 					}
 					u8Channelsave = 0;
 				}else if(bCharBuffer[0]=='B' && bCharBuffer[1]=='R' && bCharBuffer[2]=='Q'){
@@ -310,9 +343,6 @@ PUBLIC void AppColdStart(void)
 					if(bCharBuffer[3]==':' && isdigit(bCharBuffer[4]) && isdigit(bCharBuffer[5])){
 						int chan = (bCharBuffer[4] - '0')*10 + bCharBuffer[5] - '0';
 						if(chan>=11 && chan<=26){
-						   	bJPT_PacketRx(chan, &sPacket);
-							g_u8Channel = u8JPT_RadioGetChannel();
-							bJPT_RadioSetChannel(g_u8Channel);
 						}
 					}
 					g_iWSDumpStatus = 1;
@@ -341,9 +371,6 @@ PUBLIC void AppColdStart(void)
 					if(bCharBuffer[3]==':' && isdigit(bCharBuffer[4]) && isdigit(bCharBuffer[5])){
 						int chan = (bCharBuffer[4] - '0')*10 + bCharBuffer[5] - '0';
 						if(chan>=11 && chan<=26){
-						   	bJPT_PacketRx(chan, &sPacket);
-							g_u8Channel = u8JPT_RadioGetChannel();
-							bJPT_RadioSetChannel(g_u8Channel);
 						}
 					}
 					g_iWSDumpStatus = 1;
@@ -364,6 +391,108 @@ PUBLIC void AppColdStart(void)
 PUBLIC void AppWarmStart(void)
 {
 	AppColdStart();
+}
+
+// MAC_MlmeDcfmIndType_e
+const char * MAC_MlmeDcfmIndType2Str(uint8_t type)
+{
+	switch(type){
+	case MAC_MLME_DCFM_SCAN:			return "MAC_MLME_DCFM_SCAN";
+	case MAC_MLME_DCFM_GTS:				return "MAC_MLME_DCFM_GTS";
+	case MAC_MLME_DCFM_ASSOCIATE:		return "MAC_MLME_DCFM_ASSOCIATE";
+	case MAC_MLME_DCFM_DISASSOCIATE:	return "MAC_MLME_DCFM_DISASSOCIATE";
+	case MAC_MLME_DCFM_POLL:			return "MAC_MLME_DCFM_POLL";
+	case MAC_MLME_DCFM_RX_ENABLE:		return "MAC_MLME_DCFM_RX_ENABLE";
+	case MAC_MLME_IND_ASSOCIATE:		return "MAC_MLME_IND_ASSOCIATE";
+	case MAC_MLME_IND_DISASSOCIATE:		return "MAC_MLME_IND_DISASSOCIATE";
+	case MAC_MLME_IND_SYNC_LOSS:		return "MAC_MLME_IND_SYNC_LOSS";
+	case MAC_MLME_IND_GTS:				return "MAC_MLME_IND_GTS";
+	case MAC_MLME_IND_BEACON_NOTIFY:	return "MAC_MLME_IND_BEACON_NOTIFY";
+	case MAC_MLME_IND_COMM_STATUS:		return "MAC_MLME_IND_COMM_STATUS";
+	case MAC_MLME_IND_ORPHAN:			return "MAC_MLME_IND_ORPHAN";
+#ifdef TOF_ENABLED
+	case MAC_MLME_DCFM_TOFPOLL:			return "MAC_MLME_DCFM_TOFPOLL";
+	case MAC_MLME_DCFM_TOFPRIME:		return "MAC_MLME_DCFM_TOFPRIME";
+	case MAC_MLME_DCFM_TOFDATAPOLL:		return "MAC_MLME_DCFM_TOFDATAPOLL";
+	case MAC_MLME_DCFM_TOFDATA:			return "MAC_MLME_DCFM_TOFDATA";
+	case MAC_MLME_IND_TOFPOLL:			return "MAC_MLME_IND_TOFPOLL";
+	case MAC_MLME_IND_TOFPRIME:			return "MAC_MLME_IND_TOFPRIME";
+	case MAC_MLME_IND_TOFDATAPOLL:		return "MAC_MLME_IND_TOFDATAPOLL";
+	case MAC_MLME_IND_TOFDATA:			return "MAC_MLME_IND_TOFDATA";
+#endif
+#if defined(DEBUG) && defined(EMBEDDED)
+	case MAC_MLME_IND_VS_DEBUG_INFO:	return "MAC_MLME_IND_VS_DEBUG_INFO";
+	case MAC_MLME_IND_VS_DEBUG_WARN:	return "MAC_MLME_IND_VS_DEBUG_WARN";
+	case MAC_MLME_IND_VS_DEBUG_ERROR:	return "MAC_MLME_IND_VS_DEBUG_ERROR";
+	case MAC_MLME_IND_VS_DEBUG_FATAL:	return "MAC_MLME_IND_VS_DEBUG_FATAL";
+#endif /* defined(DEBUG) && defined(EMBEDDED) */
+	case MAC_MLME_INVALID:				return "MAC_MLME_INVALID";
+	default:							return "Unknown MLME message type!";
+	}
+}
+
+// MAC_McpsDcfmIndType_e
+const char * MAC_McpsDcfmIndType2Str(uint8_t type)
+{
+	switch(type){
+	case MAC_MCPS_DCFM_DATA:		return "MAC_MCPS_DCFM_DATA";
+	case MAC_MCPS_DCFM_PURGE:		return "MAC_MCPS_DCFM_PURGE";
+	case MAC_MCPS_IND_DATA:			return "MAC_MCPS_IND_DATA";
+	default:						return "Unknown MCPS message type!";
+	}
+}
+
+PRIVATE MAC_MlmeDcfmInd_s sMlmeBuffer;
+PRIVATE MAC_DcfmIndHdr_s * prMlmeGetBuffer(void * pParam)
+{
+	vPrintf("prMlmeGetBuffer\n");
+	return (MAC_DcfmIndHdr_s *)&sMlmeBuffer;
+}
+PRIVATE void prMlmeCallback(void * pParam, MAC_DcfmIndHdr_s * pBuf)
+{
+	vPrintf("prMlmeCallback\n");
+	vPrintf("    Type:   %d (%s)\n", pBuf->u8Type, MAC_MlmeDcfmIndType2Str(pBuf->u8Type));
+	vPrintf("    Length: %d\n", pBuf->u8ParamLength);
+}
+
+PRIVATE MAC_McpsDcfmInd_s sMcpsBuffer;
+PRIVATE MAC_DcfmIndHdr_s * prMcpsGetBuffer(void * pParam)
+{
+	vPrintf("prMcpsGetBuffer\n");
+	return (MAC_DcfmIndHdr_s *)&sMcpsBuffer;
+}
+PRIVATE void prMcpsCallback(void * pParam, MAC_DcfmIndHdr_s * pBuf)
+{
+	vPrintf("prMcpsCallback\n");
+	vPrintf("    Type:   %d (%s)\n", pBuf->u8Type, MAC_McpsDcfmIndType2Str(pBuf->u8Type));
+	vPrintf("    Length: %d\n", pBuf->u8ParamLength);
+	if(pBuf->u8Type==MAC_MCPS_IND_DATA){
+		MAC_McpsDcfmIndParam_u * pIndFrame = (MAC_McpsDcfmIndParam_u*)pBuf;
+		MAC_RxFrameData_s * pDataFrame = &pIndFrame->sIndData.sFrame;
+		vPrintf("    Payload Length: %d\n", pDataFrame->u8SduLength);
+		int cnt;
+//		for(cnt=0;cnt<pDataFrame->u8SduLength;cnt++){
+		for(cnt=0;cnt<MAC_MAX_DATA_PAYLOAD_LEN;cnt++){
+			vPrintf("%02x ", pDataFrame->au8Sdu[cnt]);
+		}
+		vPrintf("\n");
+		vPrintf("    Timestamp:      %d\n", pDataFrame->u32Timestamp);
+	}
+}
+/*
+void prMlmeCallback(void)
+{
+	vPrintf("prMlmeCallback\n");
+}
+
+void prMcpsCallback(void)
+{
+	vPrintf("prMcpsCallback\n");
+}
+*/
+void prHwCallback(void)
+{
+	vPrintf("prHwCallback\n");
 }
 
 #define exPutC(c)	vUartWrite(UART_TO_PC, c)
@@ -783,12 +912,6 @@ uint32_t g_u32IEEESeqNumber = 36;
 // This is necessary in order to be able to receive data after having sent a frame
 PRIVATE void ZB_JumpChannel(void)
 {
-	tsJPT_PT_Packet sPacket;
-	if (g_u8Channel != STARTUP_CHANNEL){
-		bJPT_PacketRx(STARTUP_CHANNEL, &sPacket);
-	}else{
-		bJPT_PacketRx(11, &sPacket);
-	}
 }
 
 PRIVATE void ZB_Send_Beacon_Request(void)
@@ -821,7 +944,7 @@ PRIVATE void ZB_Send_Beacon_Request(void)
 	sSendPacket.bPacketGood = 1;
 	WS_Dump_Packet(&sSendPacket);
 
-	vJPT_PacketTx(g_u8Channel, &sSendPacket);
+//!!!	vJPT_PacketTx(g_u8Channel, &sSendPacket);
 	ZB_JumpChannel();
 }
 
@@ -931,7 +1054,7 @@ PRIVATE void ZB_Send_Beacon(void)
 
 	sSendPacket.bPacketGood = 1;
 	WS_Dump_Packet(&sSendPacket);
-	vJPT_PacketTx(g_u8Channel, &sSendPacket);
+//!!!	vJPT_PacketTx(g_u8Channel, &sSendPacket);
 	ZB_JumpChannel();
 }
 
@@ -955,7 +1078,7 @@ PRIVATE void ZB_Send_Ack(uint8_t seqnum)
 
 	sSendPacket.bPacketGood = 1;
 	WS_Dump_Packet(&sSendPacket);
-	vJPT_PacketTx(g_u8Channel, &sSendPacket);
+///!!!	vJPT_PacketTx(g_u8Channel, &sSendPacket);
 	ZB_JumpChannel();
 }
 
@@ -1007,7 +1130,7 @@ PRIVATE void ZB_Send_Asso_Resp(void)
 
 	sSendPacket.bPacketGood = 1;
 	WS_Dump_Packet(&sSendPacket);
-	vJPT_PacketTx(g_u8Channel, &sSendPacket);
+///!!!	vJPT_PacketTx(g_u8Channel, &sSendPacket);
 	ZB_JumpChannel();
 }
 #endif	//def DO_COORD_JOB

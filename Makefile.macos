@@ -10,7 +10,8 @@ JENNIC_SDK ?= JN-SW-4163
 ##############################################################################
 # Select the network stack (e.g. MAC, ZBPRO)
 
-JENNIC_STACK ?= None
+#JENNIC_STACK ?= None
+JENNIC_STACK ?= MAC
 ###TODO: Check this
 
 ##############################################################################
@@ -43,7 +44,6 @@ APPSRC += main.c crc-ccitt.c UartBuffered.c Queue.c Printf.c
 #APPSRC += JN516xSniffer.c
 
 # Specify additional Component libraries
-LDLIBS += JPT_${JENNIC_CHIP}
 
 ##############################################################################
 # Standard Application header search paths
