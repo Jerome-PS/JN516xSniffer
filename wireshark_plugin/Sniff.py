@@ -2,6 +2,8 @@
 # Check https://github.com/Jerome-PS/JN516xSniffer for documentation.
 
 # Windows command line example: python Sniff.py COM3 -wc C:\Users\snif\Downloads\WiresharkPortable\WiresharkPortable.exe
+# Linux   command line example: ./Sniff.py /dev/ttyUSB0
+# macOS   command line example: ./Sniff.py /dev/cu.usbserial
 
 bIsWindows = False
 bIsLinux   = False
@@ -120,7 +122,7 @@ def main(argv):
 	import threading
 
 	try:
-		ser = serial.Serial(args.comport, 38400, bytesize=8, parity='N', stopbits=1, timeout=None, xonxoff=0, rtscts=0)
+		ser = serial.Serial(args.comport, 115200, bytesize=8, parity='N', stopbits=1, timeout=None, xonxoff=0, rtscts=0)
 #	except PermissionError:
 	except Exception as e:
 		print("~~~~~~~~~~~~~~~~~~")
@@ -159,9 +161,9 @@ def main(argv):
 					if(pipeRx.bIsOpen):
 						print("Sending wireshark init sequence")
 # E6 : LINKTYPE_IEEE802_15_4_NOFCS   230	DLT_IEEE802_15_4_NOFCS   IEEE 802.15.4 wireless Personal Area Network, without the FCS at the end of the frame.
-						pipeRx.write(bytearray([0xD4, 0xC3, 0xB2, 0xA1 , 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xE6, 0x00, 0x00, 0x00]))
+#						pipeRx.write(bytearray([0xD4, 0xC3, 0xB2, 0xA1 , 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xE6, 0x00, 0x00, 0x00]))
 # C3 : LINKTYPE_IEEE802_15_4         195	DLT_IEEE802_15_4         IEEE 802.15.4 wireless Personal Area Network, with each packet having the FCS at the end of the frame.
-#						pipeRx.write(bytearray([0xD4, 0xC3, 0xB2, 0xA1 , 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xC3, 0x00, 0x00, 0x00]))
+						pipeRx.write(bytearray([0xD4, 0xC3, 0xB2, 0xA1 , 0x02, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0xC3, 0x00, 0x00, 0x00]))
 				if(pipeRx.bIsOpen):
 					pipeRx.write(data)
 			except FIFOClosedException as e:
