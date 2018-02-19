@@ -244,13 +244,6 @@ do
 		com:write("BRQ\n")
 		com:close()
 	end
-	local function zbsbq()
-		local portname = default_settings.comport
-		local com = assert(io.open(portname, "w"))
-		dprint("About to send SBQ on " .. portname)
-		com:write("SBQ\n")
-		com:close()
-	end
 	local function zb1Mbps()
 		local portname = default_settings.comport
 		local com = assert(io.open(portname, "w"))
@@ -266,6 +259,5 @@ do
 	register_menu("ZB/8. Set 1Mbps",zb1Mbps,MENU_TOOLS_UNSORTED)
 	register_menu("ZB/9. Test",zbtest,MENU_TOOLS_UNSORTED)
 	register_menu("ZB/A. Beacon Request",zbbrq,MENU_TOOLS_UNSORTED)
-	register_menu("ZB/B. Beacon",zbsbq,MENU_TOOLS_UNSORTED)
 end
 

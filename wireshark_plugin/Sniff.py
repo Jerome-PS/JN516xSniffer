@@ -48,6 +48,12 @@ def main(argv):
 		bIsLinux = True
 		bIsPosix = True
 		print("Detected platform is Linux")
+		import os, grp
+		if(not ('wireshark' in [grp.getgrgid(g).gr_name for g in os.getgroups()])):
+			print("~~~~~~~~~~~~~~~~~~")
+			print("Warning, user not in group '%s', you might not be able to use wireshark" % "wireshark")
+			print('\tTry: sudo usermod -a -G wireshark $USER')
+			print("~~~~~~~~~~~~~~~~~~")
 	elif(platform.system()=="Darwin"):
 		bIsmacOS = True
 		bIsPosix = True
@@ -125,10 +131,13 @@ def main(argv):
 		ser = serial.Serial(args.comport, 115200, bytesize=8, parity='N', stopbits=1, timeout=None, xonxoff=0, rtscts=0)
 #	except PermissionError:
 	except Exception as e:
-		print("~~~~~~~~~~~~~~~~~~")
-		print("Error, cannot open serial port '%s'", args.comport)
-		print('\tTry: sudo usermod -a -G dialout $USER')
-		print("~~~~~~~~~~~~~~~~~~")
+		if(bIsLinux):
+			import os, grp
+			if(not ('dialout' in [grp.getgrgid(g).gr_name for g in os.getgroups()])):
+				print("~~~~~~~~~~~~~~~~~~")
+				print("Error, cannot open serial port '%s', but user is not in group 'dialout'" % args.comport)
+				print('\tTry: sudo usermod -a -G dialout $USER')
+				print("~~~~~~~~~~~~~~~~~~")
 		raise e
 		
 	ser.rts = 0	# nRESET when wired

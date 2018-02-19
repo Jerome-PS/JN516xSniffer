@@ -43,7 +43,7 @@ APPSRC += main.c crc-ccitt.c UartBuffered.c Queue.c Printf.c
 #APPSRC += JN516xSniffer.c
 
 # Specify additional Component libraries
-LDLIBS += JPT_${JENNIC_CHIP}
+APPLIBS += MMAC
 
 ##############################################################################
 # Standard Application header search paths
