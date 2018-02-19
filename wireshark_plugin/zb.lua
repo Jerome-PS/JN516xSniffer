@@ -101,6 +101,8 @@ do
 -- Dissection routine
     function p_zbparams104.dissector(buf,pkt,root)
 --		dprint("[0:2]=" .. buf(0,2):uint())
+		set_color_filter_slot(4, "zbee_zcl")				-- Purple 2
+		set_color_filter_slot(7, "zbee_nwk.cmd.id == 0x08")		-- Green  3 - Link Status
 		if (buf:len() < 2) or (buf(0,2):uint() ~= 0x0700) then
 			orig104:call(buf,pkt,root)
 		else
@@ -112,6 +114,8 @@ do
 
     function p_zbparams127.dissector(buf,pkt,root)
 
+		set_color_filter_slot(4, "zbee_zcl")				-- Purple 2
+		set_color_filter_slot(7, "zbee_nwk.cmd.id == 0x08")		-- Green  3 - Link Status
 		if (buf:len() < 2) or (buf(0,2):uint() ~= 0x0700) then
 			orig127:call(buf,pkt,root)
 		else
@@ -198,14 +202,25 @@ do
 
 	end
 
+	local function zbinit()
+		local portname = default_settings.comport
+		local channel  = default_settings.channel
+		local com = assert(io.open(portname, "w"))
+		dprint("About to send INI:" .. channel .. " on " .. portname)
+		com:write("INI:" .. channel .. "\n")
+--		com:write("STA\n")
+--		dprint("About to send C:" .. channel .. " on " .. portname)
+--		com:write("C:" .. channel .. "\n")
+		com:close()
+	end
 	local function zbstart()
 		local portname = default_settings.comport
 		local channel  = default_settings.channel
 		local com = assert(io.open(portname, "w"))
-		dprint("About to send STA on " .. portname)
-		com:write("STA\n")
-		dprint("About to send C:" .. channel .. " on " .. portname)
-		com:write("C:" .. channel .. "\n")
+		dprint("About to send STA:" .. channel .. " on " .. portname)
+		com:write("STA:".. channel .. "\n")
+--		dprint("About to send C:" .. channel .. " on " .. portname)
+--		com:write("C:" .. channel .. "\n")
 		com:close()
 	end
 	local function zbstop()
@@ -222,10 +237,27 @@ do
 		com:write("TST\n")
 		com:close()
 	end
+	local function zbbrq()
+		local portname = default_settings.comport
+		local com = assert(io.open(portname, "w"))
+		dprint("About to send BRQ on " .. portname)
+		com:write("BRQ\n")
+		com:close()
+	end
+	local function zb1Mbps()
+		local portname = default_settings.comport
+		local com = assert(io.open(portname, "w"))
+		dprint("About to send BRD:1000000 on " .. portname)
+		com:write("BRD:1000000\n")
+		com:close()
+	end
 
-	register_menu("ZB/ZB Options",dialog_menu,MENU_TOOLS_UNSORTED)
-	register_menu("ZB/ZB Start",zbstart,MENU_TOOLS_UNSORTED)
-	register_menu("ZB/ZB Stop",zbstop,MENU_TOOLS_UNSORTED)
-	register_menu("ZB/ZB Test",zbtest,MENU_TOOLS_UNSORTED)
+--	register_menu("ZB/0. Init",zbinit,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/1. Start",zbstart,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/2. Stop",zbstop,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/3. Options",dialog_menu,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/8. Set 1Mbps",zb1Mbps,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/9. Test",zbtest,MENU_TOOLS_UNSORTED)
+	register_menu("ZB/A. Beacon Request",zbbrq,MENU_TOOLS_UNSORTED)
 end
 

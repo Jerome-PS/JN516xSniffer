@@ -18,7 +18,7 @@ JENNIC_STACK ?= None
 #DEBUG ?=HW
 #
 # Define which UART to use for debug
-DEBUG_PORT ?= UART0
+DEBUG_PORT ?= UART1
 
 ##############################################################################
 # Define TRACE to use with DBG module
@@ -39,11 +39,11 @@ TOOLCHAIN_PATH      =
 ##############################################################################
 # Application Source files
 
-APPSRC += main.c UartBuffered.c Queue.c Printf.c
+APPSRC += main.c crc-ccitt.c UartBuffered.c Queue.c Printf.c
 #APPSRC += JN516xSniffer.c
 
 # Specify additional Component libraries
-LDLIBS += JPT_${JENNIC_CHIP}
+APPLIBS += MMAC
 
 ##############################################################################
 # Standard Application header search paths
@@ -61,8 +61,7 @@ include $(SDK_BASE_DIR)/Stack/Common/Build/config.mk
 
 ###TODO: change this
 INCFLAGS += -I$(TOOL_COMMON_BASE_DIR)/$(TOOLCHAIN_PATH)/include
-INCFLAGS += -I/usr/local/ba-elf/include
-LDFLAGS += -L/usr/local/ba-elf/lib -fno-lto
+LDFLAGS += -fno-lto
 
 ##############################################################################
 

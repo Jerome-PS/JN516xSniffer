@@ -1,22 +1,32 @@
 #include <jendefs.h>
 #include <AppHardwareApi.h>
-#include <JPT.h>
+#include <MMAC.h>
+#include <string.h>
 #include "Printf.h"
 #include "UartBuffered.h"
+#include "crc-ccitt.h"
+
+// JN5169 air bit rate is 250kbits/s
 
 /****************************************************************************/
 /***        Macro Definitions                                             ***/
 /****************************************************************************/
 
 //#define XIAOMI_SMART_BUTTON
+#define XIAOMI_SMART_DOOR_SENSOR
+#define HEARTBEAT_LED
 
 #define UART_TO_PC              E_AHI_UART_0        /* Uart to PC           */
 
-#define BAUD_RATE               E_AHI_UART_RATE_38400 /* Baud rate to use   */
+#define BAUD_RATE               E_AHI_UART_RATE_115200 /* Baud rate to use   */
 
 #define STARTUP_CHANNEL			20
 
-#ifdef XIAOMI_SMART_BUTTON
+#if defined(XIAOMI_SMART_BUTTON)
+#define LED_PIN_BIT				(1 << 11)
+#define MAIN_PIN_BIT			(1 << 16)
+#define PAIR_PIN_BIT			(1 <<  0)
+#elif defined(XIAOMI_SMART_DOOR_SENSOR)
 #define LED_PIN_BIT				(1 << 11)
 #define MAIN_PIN_BIT			(1 << 16)
 #define PAIR_PIN_BIT			(1 <<  0)
@@ -30,16 +40,6 @@
 
 #define isdigit(x)	(((x)>='0') && ((x)<='9'))
 
-typedef struct pcap_hdr_s {
-        uint32_t magic_number;   /* magic number */
-        uint16_t version_major;  /* major version number */
-        uint16_t version_minor;  /* minor version number */
-         int32_t thiszone;       /* GMT to local correction */
-        uint32_t sigfigs;        /* accuracy of timestamps */
-        uint32_t snaplen;        /* max length of captured packets, in octets */
-        uint32_t network;        /* data link type */
-} pcap_hdr_t;
-//} __attribute__((packed)) pcap_hdr_t;
 
 typedef struct pcaprec_hdr_s {
         uint32_t ts_sec;         /* timestamp seconds */
@@ -47,20 +47,15 @@ typedef struct pcaprec_hdr_s {
         uint32_t incl_len;       /* number of octets of packet saved in file */
         uint32_t orig_len;       /* actual length of packet */
 } pcaprec_hdr_t;
-//} __attribute__((packed)) pcaprec_hdr_t;
 
 /****************************************************************************/
 /***        Local Variables                                               ***/
 /****************************************************************************/
 
-uint8 au8UartTxBuffer[100];
+uint8 au8UartTxBuffer[1024];		// Well, this should be overkill at baudrates > 250k
 uint8 au8UartRxBuffer[100];
 
-uint32 u32RadioMode           = E_JPT_MODE_LOPOWER;
-uint32 u32ModuleRadioMode     = E_JPT_MODE_LOPOWER;
-
-uint8 u8TxPowerAdj	  = 0;
-uint8 u8Attenuator3dB = 0;
+uint8 g_u8Channel = STARTUP_CHANNEL;
 
 volatile uint32_t g_u32Seconds = 0;
 int g_iWSDumpStatus = 0;
@@ -90,43 +85,42 @@ const float afFrequencies[] = {
 PRIVATE void vPutC(uint8 u8Data);
 PRIVATE char acGetC(void);
 PRIVATE void TickTimer_Cb(uint32_t u32Device, uint32_t u32ItemBitmap);
-PRIVATE void WS_init(void);
+
 PRIVATE void WS_Send_Chan_Num(uint8_t u8Channel);
 PRIVATE void WS_Send_Syntax_Error(const char * pBuffer);
 PRIVATE void WS_Send_Test_Packet(void);
-PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket);
+PRIVATE void Dump_Packet(tsPhyFrame * pPHYPacket);
+
+PRIVATE void ZB_Send_Beacon_Request(void);
+
+PRIVATE void vMMAC_Handler(uint32 u32Param);
+#define NB_PHY_BUFFERS	8
+tsPhyFrame PHYBuffer[NB_PHY_BUFFERS];
+volatile uint32_t g_u32PHYBufRIdx = 0;
+volatile uint32_t g_u32PHYBufWIdx = 0;
 
 /****************************************************************************/
 /***        Exported Functions                                            ***/
 /****************************************************************************/
 PUBLIC void AppColdStart(void)
 {
-	uint32 u32JPT_Ver = 0;(void)u32JPT_Ver;
-	uint32 u32JPT_RadioModes = 0;(void)u32JPT_RadioModes;
 	uint32 u32Chip_Id = 0;(void)u32Chip_Id;
-#if (defined JENNIC_CHIP_JN5169)
-	uint32 u32RadioParamVersion;
-#endif
-	uint8 u8Channel = 0;
 	uint8 u8Channelsave = 0;
-	tsJPT_PT_Packet sPacket;
 	char bCharBuffer[64] = "";
 	int iCharBufferPtr = 0;
 
 	/* Turn off debugger */
 	*(volatile uint32 *)0x020000a0 = 0;
 
+    /* Disable watchdog if enabled by default */
+#ifdef WATCHDOG_ENABLED
 	vAHI_WatchdogStop();
-
-	u32JPT_Ver = u32JPT_Init();                 /* initialise production test API */
-#if (defined JENNIC_CHIP_JN5169)
-	vJPT_GetRadioConfig(&u32RadioParamVersion);
 #endif
 
-	u32AHI_Init();                              /* initialise hardware API */
+	(void)u32AHI_Init();                              /* initialise hardware API */
 
 	volatile int n;
-	for(n=0;n<100000;n++);      // wait for JN516X to move onto 32MHz Crystal
+	for(n=0;n<100000;n++){}      // wait for JN516X to move onto 32MHz Crystal
 
 /* set up the tick timer, we'll use it for timestamps */
 	vAHI_TickTimerConfigure(E_AHI_TICK_TIMER_DISABLE);
@@ -138,6 +132,13 @@ PUBLIC void AppColdStart(void)
 
 	vAHI_UartSetRTSCTS(UART_TO_PC, FALSE);
 	vUartInit(UART_TO_PC, BAUD_RATE, au8UartTxBuffer, sizeof(au8UartTxBuffer), au8UartRxBuffer, sizeof(au8UartRxBuffer));/* uart for user interface */
+
+	vMMAC_Enable();
+	vMMAC_EnableInterrupts(vMMAC_Handler);
+	vMMAC_ConfigureInterruptSources(E_MMAC_INT_TX_COMPLETE | E_MMAC_INT_RX_HEADER /* | E_MMAC_INT_RX_COMPLETE */);
+	vMMAC_ConfigureRadio();
+	vMMAC_SetChannel(g_u8Channel);
+	vMMAC_StartPhyReceive(&PHYBuffer[g_u32PHYBufWIdx], E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
 
 #ifdef HEARTBEAT_LED
 	vAHI_DioSetDirection(0x00000000, LED_PIN_BIT);		// Set DIO11 as output (LED)
@@ -152,38 +153,18 @@ PUBLIC void AppColdStart(void)
 	/* read Chip_ID register */
 	u32Chip_Id= READ_REG32(0x020000fc);
 
-	u32RadioMode = E_JPT_MODE_LOPOWER;
-	u32ModuleRadioMode = E_JPT_MODE_LOPOWER;
-	u8TxPowerAdj = 0;
-	u8Attenuator3dB = 0;
-#ifdef RXPOWERADJUST_SUPPORT
-	vJPT_SetMaxInputLevel(E_MAX_INP_LEVEL_10dB);
-#endif	//def RXPOWERADJUST_SUPPORT
-
-	/* enable protocol */
-	bJPT_RadioInit(u32RadioMode);
-
-	/* force channel change in bJPT_PacketRx */
-	u8Channel = u8JPT_RadioGetChannel();
-	if (u8Channel != STARTUP_CHANNEL){
-		bJPT_PacketRx(STARTUP_CHANNEL, &sPacket);
-	}else{
-		bJPT_PacketRx(11, &sPacket);
-		bJPT_PacketRx(STARTUP_CHANNEL, &sPacket);
-	}
-	u8Channel = u8JPT_RadioGetChannel();
-
-	bJPT_RadioSetChannel(u8Channel);
-
 	while(1){
-		if ((u8Channel != u8Channelsave) && g_iWSDumpStatus > 0){
-			WS_Send_Chan_Num(u8Channel);
-			u8Channelsave = u8Channel;
+		if ((g_u8Channel != u8Channelsave) && g_iWSDumpStatus > 0){
+			WS_Send_Chan_Num(g_u8Channel);
+			u8Channelsave = g_u8Channel;
 		}
-		if(bJPT_PacketRx(u8Channel, &sPacket)){
+
+		uint32_t u32PHYBufRIdx = g_u32PHYBufRIdx;
+		if(g_u32PHYBufWIdx!=u32PHYBufRIdx){
 			if(g_iWSDumpStatus > 0){
-				WS_Dump_Packet(&sPacket);
+				Dump_Packet(&PHYBuffer[u32PHYBufRIdx]);
 			}
+			g_u32PHYBufRIdx = (u32PHYBufRIdx + 1) % NB_PHY_BUFFERS;
 		}
 
 #ifdef HEARTBEAT_LED
@@ -219,16 +200,52 @@ PUBLIC void AppColdStart(void)
 				if(bCharBuffer[0]=='C' && bCharBuffer[1]==':' && isdigit(bCharBuffer[2]) && isdigit(bCharBuffer[3])){
 					int chan = (bCharBuffer[2] - '0')*10 + bCharBuffer[3] - '0';
 					if(chan>=11 && chan<=26){
-					   	bJPT_PacketRx(chan, &sPacket);
-						u8Channel = u8JPT_RadioGetChannel();
-						bJPT_RadioSetChannel(u8Channel);
+						g_u8Channel = chan;
+						vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
 					}
 					u8Channelsave = 0;
+				}else if(bCharBuffer[0]=='B' && bCharBuffer[1]=='R' && bCharBuffer[2]=='Q'){
+					ZB_Send_Beacon_Request();
 				}else if(bCharBuffer[0]=='S' && bCharBuffer[1]=='T' && bCharBuffer[2]=='O'){
 					g_iWSDumpStatus = 0;
-				}else if(bCharBuffer[0]=='S' && bCharBuffer[1]=='T' && bCharBuffer[2]=='A'){
+				}else if(bCharBuffer[0]=='I' && bCharBuffer[1]=='N' && bCharBuffer[2]=='I'){
+					if(bCharBuffer[3]==':' && isdigit(bCharBuffer[4]) && isdigit(bCharBuffer[5])){
+						int chan = (bCharBuffer[4] - '0')*10 + bCharBuffer[5] - '0';
+						if(chan>=11 && chan<=26){
+							g_u8Channel = chan;
+							vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
+						}
+					}
 					g_iWSDumpStatus = 1;
-					WS_init();
+					u8Channelsave = 0;
+				}else if(bCharBuffer[0]=='B' && bCharBuffer[1]=='R' && bCharBuffer[2]=='D' && bCharBuffer[3]==':'){
+					int ptr = 4;
+					int baudrate = 0;
+					while((ptr<iCharBufferPtr) && isdigit(bCharBuffer[ptr])){
+						baudrate *= 10;
+						baudrate += bCharBuffer[ptr] - '0';
+						ptr++;
+					}
+					if(baudrate==1000000){
+						for(n=0;n<100000;n++){}      // wait a bit
+						vAHI_UartSetBaudDivisor(UART_TO_PC, 1);
+						vAHI_UartSetClocksPerBit(UART_TO_PC, 15);
+						for(n=0;n<100000;n++){}      // wait a bit
+						WS_Send_Syntax_Error("Baudrate set to 1Mbaud");
+					}else{
+//						WS_Send_Syntax_Error("Invalid baudrate");
+						bCharBuffer[iCharBufferPtr] = 0;
+						WS_Send_Syntax_Error(bCharBuffer);
+					}
+				}else if(bCharBuffer[0]=='S' && bCharBuffer[1]=='T' && bCharBuffer[2]=='A'){
+					if(bCharBuffer[3]==':' && isdigit(bCharBuffer[4]) && isdigit(bCharBuffer[5])){
+						int chan = (bCharBuffer[4] - '0')*10 + bCharBuffer[5] - '0';
+						if(chan>=11 && chan<=26){
+							g_u8Channel = chan;
+							vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
+						}
+					}
+					g_iWSDumpStatus = 1;
 					u8Channelsave = 0;
 				}else if(bCharBuffer[0]=='T' && bCharBuffer[1]=='S' && bCharBuffer[2]=='T'){
 					WS_Send_Test_Packet();
@@ -246,6 +263,25 @@ PUBLIC void AppColdStart(void)
 PUBLIC void AppWarmStart(void)
 {
 	AppColdStart();
+}
+
+PRIVATE void vMMAC_Handler(uint32 u32Param)
+{
+//	E_MMAC_INT_TX_COMPLETE
+//	E_MMAC_INT_RX_HEADER
+//	E_MMAC_INT_RX_COMPLETE
+	if(u32Param & E_MMAC_INT_RX_HEADER){
+		uint32_t u32NextWIdx = (g_u32PHYBufWIdx+1) % NB_PHY_BUFFERS;
+		if(u32NextWIdx==g_u32PHYBufRIdx){
+//			vPrintf("RX error, buffer overflow!\n");
+		}else{
+			vMMAC_StartPhyReceive(&PHYBuffer[u32NextWIdx], E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+			g_u32PHYBufWIdx = u32NextWIdx;
+		}
+	}else{
+//		vPrintf("vMMAC_Handler(%08x)\n", u32Param);
+		vMMAC_StartPhyReceive(&PHYBuffer[g_u32PHYBufWIdx], E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+	}
 }
 
 /****************************************************************************/
@@ -268,21 +304,6 @@ PRIVATE void TickTimer_Cb(uint32_t u32Device, uint32_t u32ItemBitmap)
 	g_u32Seconds++;
 }
 
-PRIVATE void WS_init(void)
-{
-	// C3 : LINKTYPE_IEEE802_15_4	    195	DLT_IEEE802_15_4	    IEEE 802.15.4 wireless Personal Area Network, with each packet having the FCS at the end of the frame.
-	// E6 : LINKTYPE_IEEE802_15_4_NOFCS	230	DLT_IEEE802_15_4_NOFCS	IEEE 802.15.4 wireless Personal Area Network, without the FCS at the end of the frame.
-//	pcap_hdr_t pcap_hdr = {.magic_number=0xA1B2C3D4 , .version_major=2, .version_minor=4, .thiszone=0, .sigfigs=0, .snaplen=65535, .network=0xC3};
-//	pcap_hdr_t pcap_hdr = {.magic_number=0xD4C3B2A1 , .version_major=0x0200, .version_minor=0x0400, .thiszone=0, .sigfigs=0, .snaplen=0xFFFF0000, .network=0xC3000000};
-//	pcap_hdr_t pcap_hdr = {.magic_number=0xD4C3B2A1 , .version_major=0x0200, .version_minor=0x0400, .thiszone=0, .sigfigs=0, .snaplen=0xFFFF0000, .network=0x01000000};
-	pcap_hdr_t pcap_hdr = {.magic_number=0xD4C3B2A1 , .version_major=0x0200, .version_minor=0x0400, .thiszone=0, .sigfigs=0, .snaplen=0xFFFF0000, .network=0xE6000000};
-
-	int ws_snd_cnt;
-	for(ws_snd_cnt=0;ws_snd_cnt<sizeof(pcap_hdr);ws_snd_cnt++){
-		vPutC(((uint8_t*)&pcap_hdr)[ws_snd_cnt]);
-	}
-}
-
 PRIVATE void WS_Send_Chan_Num(uint8_t u8Channel)
 {
 	pcaprec_hdr_t pcap_rec_hdr = {.ts_sec=0, .ts_usec=0, .incl_len=0, .orig_len=0};
@@ -296,9 +317,9 @@ PRIVATE void WS_Send_Chan_Num(uint8_t u8Channel)
 	}while(u32Seconds!=g_u32Seconds);
 	pcap_rec_hdr.ts_sec  = swap32(u32Seconds);
 	pcap_rec_hdr.ts_usec = swap32(u32Fraction/16);			// 16 MHz
-	dataFrame[lenval++] = 0x07;								// Unknown packet type
-	dataFrame[lenval++] = 0x00;								// Unknown packet type
-	dataFrame[lenval++] = 0x00;								// Sequence number
+	dataFrame[lenval++] = 0x07;					// Unknown packet type
+	dataFrame[lenval++] = 0x00;					// Unknown packet type
+	dataFrame[lenval++] = 0x00;					// Sequence number
 	dataFrame[lenval++] = u8Channel;
 	float fFreq = afFrequencies[u8Channel - 11];
 	dataFrame[lenval++] = ((uint8_t*)&fFreq)[0];
@@ -392,20 +413,9 @@ PRIVATE void WS_Send_Test_Packet(void)
 	}
 }
 
-PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
+PRIVATE void Dump_Packet(tsPhyFrame * pPHYPacket)
 {
-	int FCS			= 0;
-	int FCS_Length 	= 0;
-
 	int cnt;
-	bool_t bSrcShortAddr = FALSE;
-	bool_t bSrcExtAddr = FALSE;
-	bool_t bDstShortAddr = FALSE;
-	bool_t bDstExtAddr = FALSE;
-	bool_t bIntraPan = FALSE;
-
-	if ( FCS ){ FCS_Length = 2; }else{ FCS_Length = 0; }
-
 	uint32_t u32Seconds;
 	uint32_t u32Fraction;
 	uint32_t u32Micros;
@@ -415,254 +425,51 @@ PRIVATE void WS_Dump_Packet(tsJPT_PT_Packet * psPacket)
 	}while(u32Seconds!=g_u32Seconds);
 	u32Micros = u32Fraction/16;
 
-/* ========================== Analyze Received Packet ==============================================*/
-	if (psPacket->bPacketGood) {
+	vPutC(u32Seconds >>  0); vPutC(u32Seconds >>  8); vPutC(u32Seconds >> 16); vPutC(u32Seconds >> 24);
+	vPutC(u32Micros  >>  0); vPutC(u32Micros  >>  8); vPutC(u32Micros  >> 16); vPutC(u32Micros  >> 24);
+	vPutC( pPHYPacket->u8PayloadLength ); vPutC(0); vPutC(0); vPutC(0);
+	vPutC( pPHYPacket->u8PayloadLength ); vPutC(0); vPutC(0); vPutC(0);
 
-//	IEEE 802.15.4 specification Section 5.2.1.1
-// Bits
-//	 0- 2: Frame type
-//			000	Beacon
-//			001 Data
-//			010 Acknowledge
-//			011 MAC command
-//			1xx Reserved
-//			111 Used to communicate with Wireshark lua script
-//	    3: Security Enabled
-//	    4: Frame Pending
-//	    5: AR (Acknowledge Request)
-//	    6: PAN ID Compression
-//	 7- 9: Reserved
-//	10-11: Dest. Addressing Mode
-//
-//	12-13: Frame version
-//	14-15: Source Addressing Mode
-
-		if((psPacket->u16FrameControl >> 6) & 1){ bIntraPan = TRUE; }
-
-		/* Source addressing mode */
-		switch((psPacket->u16FrameControl >> 14) & 3){
-
-		/* PAN id and address field not present */
-		case 0:
-			bSrcShortAddr = FALSE;
-			bSrcExtAddr = FALSE;
-			break;
-
-		/* Reserved */
-		case 1:
-// TODO: should we signal an error?
-			// Je mets short mais je ne sais pas ce que cela doit etre
-			bSrcShortAddr = FALSE;
-			bSrcExtAddr = FALSE;
-			break;
-
-		/* Address field contains a 16 bit short address */
-		case 2:
-			// vPrintf("SSAD=%04x ",psPacket->u16SourceShortAddress);
-			bSrcShortAddr = TRUE;
-			bSrcExtAddr = FALSE;
-			break;
-
-		/* Address field contains a 64 bit extended address */
-		case 3:
-			// vPrintf("SEAD=%016lx ", psPacket->u64SourceExtendedAddress);
-			bSrcShortAddr = FALSE;
-			bSrcExtAddr = TRUE;
-			break;
-		}
-
-		/* Destination addressing mode */
-		switch((psPacket->u16FrameControl & 3 << 10) >> 10){
-
-		/* PAN id and address field not present */
-		case 0:
-			bDstShortAddr = FALSE;
-			bDstExtAddr = FALSE;
-			break;
-
-			/* Reserved */
-		case 1:
-			// Je mets short mais je ne sais pas ce que cela doit etre
-			bDstShortAddr = FALSE;
-			bDstExtAddr = FALSE;
-			break;
-
-			/* Address field contains a 16 bit short address */
-		case 2:
-			// vPrintf("DSAD=%04x ",psPacket->u16DestinationShortAddress);
-			bDstShortAddr = TRUE;
-			bDstExtAddr = FALSE;
-			break;
-
-			/* Address field contains a 64 bit extended address */
-		case 3:
-			// vPrintf("DEAD=%016lx ", psPacket->u64DestinationExtendedAddress);
-			bDstShortAddr = FALSE;
-			bDstExtAddr = TRUE;
-			break;
-
-		}
-	}
-
-/* look at frame type */
-	switch(psPacket->u16FrameControl & 7){
-/* MAC Beacon Reply -----------------------------------------------------------------------------------------  */
-	case 0:
-		if ( psPacket->bPacketGood ) {
-			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
-			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
-			vPutC( psPacket->u8PayloadLength + 7 + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-			vPutC( psPacket->u8PayloadLength + 7 + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-	// MAC
-		// FrameControl
-			vPutC(psPacket->u16FrameControl&0xFF); vPutC(psPacket->u16FrameControl>>8);
-		// SequenceNumber
-			vPutC(psPacket->u8SequenceNumber);
-		// Source Pan ID
-			vPutC(psPacket->u16SourcePanID&0xFF); vPutC(psPacket->u16SourcePanID>>8);
-		// Source Short Address
-			vPutC(psPacket->u16SourceShortAddress&0xFF); vPutC(psPacket->u16SourceShortAddress>>8);
-		// Payload
-			for(cnt = 0; cnt < psPacket->u8PayloadLength; cnt++){
-				vPutC( psPacket->u8Payload[cnt] );
-			}
-		// FCS
-			if (FCS) { vPutC(0xAA); vPutC(0xAA); }
-		}else {
-			// Will need to inform Wireshark that a packet has been received but not forwarded.
-		}
-		break;
-/* MAC Data -------------------------------------------------------------------------------------------------- */
-	case 1:
-		if ( (psPacket->bPacketGood) ) {
-			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
-			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
-			
-			int frame_len = 0;
-			frame_len += 2;			// Control field
-			frame_len += 1;			// Sequence numbe
-			if(bDstShortAddr || bDstExtAddr){			frame_len += 2;	}	// Destination PAN (Std 802.15.4-2011 p59)
-			if(bDstShortAddr){					frame_len += 2;	}
-			if(bDstExtAddr){					frame_len += 8;	}
-			if((bIntraPan==0) && (bSrcExtAddr || bSrcShortAddr)){	frame_len += 2;	}
-			if(bSrcShortAddr){					frame_len += 2;	}
-			if(bSrcExtAddr){					frame_len += 8;	}
-			frame_len += psPacket->u8PayloadLength;
-
-			vPutC( frame_len ); vPutC(0); vPutC(0); vPutC(0);
-			vPutC( frame_len ); vPutC(0); vPutC(0); vPutC(0);
-	// MAC
-		// FrameControl
-			vPutC(psPacket->u16FrameControl&0xFF); vPutC(psPacket->u16FrameControl>>8);
-		// SequenceNumber
-			vPutC(psPacket->u8SequenceNumber);
-		// Destination Pan ID
-			if(bDstShortAddr || bDstExtAddr){
-				vPutC(psPacket->u16DestinationPanID&0xFF); vPutC(psPacket->u16DestinationPanID>>8);
-			}
-		// Destination Address
-			if(bDstShortAddr){
-			// Destination Short Address
-				vPutC(psPacket->u16DestinationShortAddress&0xFF); vPutC(psPacket->u16DestinationShortAddress>>8);
-			}
-			if ( bDstExtAddr ) {
-			// Destination Long Address
-				uint8 *data = (uint8 *)&(psPacket->u64DestinationExtendedAddress);
-				vPutC(data[7]); vPutC(data[6]); vPutC(data[5]); vPutC(data[4]); vPutC(data[3]); vPutC(data[2]); vPutC(data[1]); vPutC(data[0]);
-			}
-		// Source Pan ID
-			if ( (bIntraPan==0) && (bSrcExtAddr || bSrcShortAddr) ) {
-				vPutC(psPacket->u16SourcePanID&0xFF); vPutC(psPacket->u16SourcePanID>>8);
-			}
-		// Source Address
-			if(bSrcShortAddr){
-			// Source Short Address
-				vPutC(psPacket->u16SourceShortAddress&0xFF); vPutC(psPacket->u16SourceShortAddress>>8);
-			}
-			if ( bSrcExtAddr ) {
-			// Source Long Address
-				uint8 *data = (uint8 *)&(psPacket->u64SourceExtendedAddress);
-				vPutC(data[7]); vPutC(data[6]); vPutC(data[5]); vPutC(data[4]); vPutC(data[3]); vPutC(data[2]); vPutC(data[1]); vPutC(data[0]);
-			}
-		// Payload
-			for(cnt = 0; cnt < psPacket->u8PayloadLength; cnt++){
-				vPutC( psPacket->u8Payload[cnt] );
-			}
-		// FCS
-			if (FCS) { vPutC(0xAA); vPutC(0xAA); }
-		}else {
-			// Will need to inform Wireshark that a packet has been received but not forwarded.
-		}
-		break;
-/* Ack  ------------------------------------------------------------------------------------------------------ */
-	case 2:
-		if ( psPacket->bPacketGood ) {
-			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
-			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
-			vPutC( psPacket->u8PayloadLength + 3 + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-			vPutC( psPacket->u8PayloadLength + 3 + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-	// MAC
-		// FrameControl
-			vPutC(psPacket->u16FrameControl&0xFF); vPutC(psPacket->u16FrameControl>>8);
-		// SequenceNumber
-			vPutC(psPacket->u8SequenceNumber);
-		// FCS
-			if (FCS) { vPutC(0xAA); vPutC(0xAA); }
-		}else {
-			// Will need to inform Wireshark that a packet has been received but not forwarded.
-		}
-		break;
-/* MAC Command  ---------------------------------------------------------------------------------------------- */
-	/* Beacon Request */
-	/* Association Request */
-	/* Association Response */
-	case 3:
-		if ( psPacket->bPacketGood ) {
-			vPutC(((uint8_t*)&u32Seconds)[3]);vPutC(((uint8_t*)&u32Seconds)[2]);vPutC(((uint8_t*)&u32Seconds)[1]);vPutC(((uint8_t*)&u32Seconds)[0]);
-			vPutC(((uint8_t*)&u32Micros)[3]); vPutC(((uint8_t*)&u32Micros)[2]); vPutC(((uint8_t*)&u32Micros)[1]); vPutC(((uint8_t*)&u32Micros)[0]);
-			vPutC( psPacket->u8PayloadLength + 2+1+2 + 2*bSrcShortAddr + 8*bSrcExtAddr + 2*(1-bIntraPan)*bSrcExtAddr + 2*bDstShortAddr + 8*bDstExtAddr + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-			vPutC( psPacket->u8PayloadLength + 2+1+2 + 2*bSrcShortAddr + 8*bSrcExtAddr + 2*(1-bIntraPan)*bSrcExtAddr + 2*bDstShortAddr + 8*bDstExtAddr + FCS_Length ); vPutC(0); vPutC(0); vPutC(0);
-	// MAC
-		// FrameControl
-			vPutC(psPacket->u16FrameControl&0xFF); vPutC(psPacket->u16FrameControl>>8);
-		// SequenceNumber
-			vPutC(psPacket->u8SequenceNumber);
-		// Destination Pan ID
-			vPutC(psPacket->u16DestinationPanID&0xFF); vPutC(psPacket->u16DestinationPanID>>8);
-		// Destination  Address
-			if ( bDstShortAddr ) {
-				vPutC(psPacket->u16DestinationShortAddress&0xFF); vPutC(psPacket->u16DestinationShortAddress>>8);
-			}
-			if ( bDstExtAddr ) {
-				uint8 *data = (uint8 *)&(psPacket->u64DestinationExtendedAddress);
-				vPutC(data[7]); vPutC(data[6]); vPutC(data[5]); vPutC(data[4]); vPutC(data[3]); vPutC(data[2]); vPutC(data[1]); vPutC(data[0]);
-			}
-		// Source Pan ID
-			if ( (bIntraPan==0) && (bSrcExtAddr) ) {
-				vPutC(psPacket->u16SourcePanID&0xFF); vPutC(psPacket->u16SourcePanID>>8);
-			}
-		// Source  Address
-			if ( bSrcShortAddr ) {
-				vPutC(psPacket->u16SourceShortAddress&0xFF); vPutC(psPacket->u16SourceShortAddress>>8);
-			}
-			if ( bSrcExtAddr ) {
-				uint8 *data = (uint8 *)&(psPacket->u64SourceExtendedAddress);
-				vPutC(data[7]); vPutC(data[6]); vPutC(data[5]); vPutC(data[4]); vPutC(data[3]); vPutC(data[2]); vPutC(data[1]); vPutC(data[0]);
-			}
-		// Payload
-			for(cnt = 0; cnt < psPacket->u8PayloadLength; cnt++){
-				vPutC( psPacket->u8Payload[cnt] );
-			}
-		// FCS
-			if (FCS) { vPutC(0xAA); vPutC(0xAA); }
-		}else {
-			// Will need to inform Wireshark that a packet has been received but not forwarded.
-		}
-		break;
-/* Reserved  ------------------------------------------------------------------------------------------------  */
-	default:
-		// Will need to inform Wireshark that an unsupported packet has been received but not forwarded.
-		break;
+	for(cnt = 0; cnt < pPHYPacket->u8PayloadLength; cnt++){
+		vPutC( pPHYPacket->uPayload.au8Byte[cnt] );
 	}
 }
+
+uint32_t g_u32IEEESeqNumber = 36;
+
+tsPhyFrame sSendPacket;
+PRIVATE void ZB_Send_Beacon_Request(void)
+{
+	memset(&sSendPacket, 0xAA, sizeof(sSendPacket));
+	int len = 0;
+// IEEE 802.15.4
+	uint16_t u16FCF     = (2 << 10) | 3;		// Destination address 16 bits, command
+	uint8_t   u8SeqNum  = g_u32IEEESeqNumber++;
+	uint16_t u16DstPAN  = 0xFFFF;
+	uint16_t u16DstAddr = 0xFFFF;
+	uint8_t       u8Cmd = 0x07;			// Command Identifier : Beacon Request
+
+	sSendPacket.uPayload.au8Byte[len++] = u16FCF & 0xFF;				// Little Endian
+	sSendPacket.uPayload.au8Byte[len++] = u16FCF >> 8;
+	sSendPacket.uPayload.au8Byte[len++] = u8SeqNum;
+	sSendPacket.uPayload.au8Byte[len++] = u16DstPAN & 0xFF;
+	sSendPacket.uPayload.au8Byte[len++] = u16DstPAN >> 8;
+	sSendPacket.uPayload.au8Byte[len++] = u16DstAddr & 0xFF;
+	sSendPacket.uPayload.au8Byte[len++] = u16DstAddr >> 8;
+	sSendPacket.uPayload.au8Byte[len++] = u8Cmd;
+
+	uint16_t u16fcs = 0;
+	u16fcs = crc_ccitt(u16fcs, &sSendPacket.uPayload.au8Byte[0], len);
+
+	sSendPacket.uPayload.au8Byte[len++] = u16fcs & 0xFF;		// FCS
+	sSendPacket.uPayload.au8Byte[len++] = u16fcs >> 8;		// FCS
+
+	sSendPacket.u8PayloadLength = len;
+	sSendPacket.au8Padding[0] = 0;
+	sSendPacket.au8Padding[1] = 0;
+	sSendPacket.au8Padding[2] = 0;
+	Dump_Packet(&sSendPacket);
+	vMMAC_StartPhyTransmit(&sSendPacket, E_MMAC_TX_START_NOW | E_MMAC_TX_NO_CCA);
+}
+
 
