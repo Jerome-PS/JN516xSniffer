@@ -39,11 +39,10 @@ TOOLCHAIN_PATH      =
 ##############################################################################
 # Application Source files
 
-APPSRC += main.c crc-ccitt.c UartBuffered.c Queue.c Printf.c
-#APPSRC += JN516xSniffer.c
+APPSRC += main.c coordinator.c crc-ccitt.c UartBuffered.c Queue.c Printf.c
 
 # Specify additional Component libraries
-LDLIBS += JPT_${JENNIC_CHIP}
+APPLIBS += MMAC
 
 ##############################################################################
 # Standard Application header search paths
@@ -62,6 +61,7 @@ include $(SDK_BASE_DIR)/Stack/Common/Build/config.mk
 ###TODO: change this
 INCFLAGS += -I$(TOOL_COMMON_BASE_DIR)/$(TOOLCHAIN_PATH)/include
 LDFLAGS += -fno-lto
+CFLAGS  += -DDO_COORD_JOB
 
 ##############################################################################
 

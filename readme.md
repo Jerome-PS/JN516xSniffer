@@ -3,32 +3,25 @@
 This has been tested on the Xiaomi Smart Button.
 
 ## Quickstart on Linux
-Once per session (until you reboot the computer for example), create the pipe and start wireshark:
+Start sniffing session from terminal:
 ```
-mkfifo /tmp/sharkfifo
-wireshark -k -i /tmp/sharkfifo -X lua_script:zb.lua -X lua_script1:comport=/dev/ttyUSB0 -X lua_script1:channel=25 &
+./Sniff.py /dev/ttyUSB0
 ```
-When capture stopped and the pipe broke, restart the capture in wireshark and rebuild the pipe:
-```
-stty -F /dev/ttyUSB0 38400 raw ignbrk -onlcr -iexten -echo -echoe -echok -echoctl -echoke & cat /dev/ttyUSB0 | tee /tmp/sf.bin > /tmp/sharkfifo
-```
+Running `./Sniff.py -h` will give you a list of detected serial ports.
 
 ## Quickstart on macOS
-Once per session (until you reboot the computer for example), create the pipe and start wireshark:
+Start sniffing session from terminal:
 ```
-mkfifo /tmp/sharkfifo
-wireshark -k -i /tmp/sharkfifo -X lua_script:zb.lua -X lua_script1:comport=/dev/cu.usbserial -X lua_script1:channel=25 &
+./Sniff.py /dev/cu.usbserial
 ```
-When capture stopped and the pipe broke, restart the capture in wireshark and rebuild the pipe:
-```
-stty -F /dev/cu.usbserial 38400 raw & cat /dev/cu.usbserial | tee /tmp/sf.bin > /tmp/sharkfifo
-```
+Running `./Sniff.py -h` will give you a list of detected serial ports.
 
 ## Quickstart on Windows
 Open command line, cd to the folder containing the scripts and launch:
 ```
-python Sniff.py COM3 C:\Users\snif\Downloads\WiresharkPortable\WiresharkPortable.exe
+python Sniff.py COM3
 ```
+Running `python Sniff.py -h` will give you a list of detected serial ports.
 
 # Table Of Content
 - [Compiling the sniffer](#Compiling-the-sniffer)
@@ -65,33 +58,13 @@ You can use the latest version of [JennicModuleProgrammer](https://github.com/Je
 You can download NXP's Beyond Studio in order to compile the source code. In eclipse, use the import from C/C++ Makefile menu.
 You can then use the programmer integrated in the IDE. Do not use any other programmer provided by NXP, because they do not support JN5169 (at least none that I could try out).
 
-# Interfacing to Wireshark
-~~Put the zb.lua Wireshark plugin in your $(HOME)/.wireshark/plugins folder.
-If you use WiresharkPortable, copy the script in WiresharkPortable\App\Wireshark\plugins.~~
-
+# Using the sniffer
 ## Using on macOS or Linux
-On Linux, you will need to be in the dialout group, in order to have enough access rights to access the serial port, as well as in the wireshark group for executing pcap:
+On Linux, you will need to be in the dialout group, in order to have enough access rights to access the serial port, as well as in the wireshark group for executing pcap.
+The script will prompt you to do it if it detects the issue.
 ```
 sudo usermod -a -G dialout $USER
 sudo usermod -a -G wireshark $USER
-```
-If you are running Linux or macOS, you will have to create a pipe:
-```
-mkfifo /tmp/sharkfifo
-```
-
-And then route data from the serial port, passing the serial port for commands as a parameter and optionally the channel number (change **comport** and **channel** as needed):
-```
-wireshark -k -i /tmp/sharkfifo -X lua_script:zb.lua -X lua_script1:comport=/dev/cu.usbserial -X lua_script1:channel=25 &
-```
-Sadly here we have a small difference between macOS and Linux (notice capital letter F or small print f)!
-This is the Linux version (raw is actually now that raw, so a lot of things have to be switched off manually):
-```
-stty -F /dev/ttyUSB0 38400 raw ignbrk -onlcr -iexten -echo -echoe -echok -echoctl -echoke & cat /dev/ttyUSB0 > /tmp/sharkfifo
-```
-This is the macOS version:
-```
-stty -f /dev/cu.usbserial 38400 raw & cat /dev/cu.usbserial > /tmp/sharkfifo
 ```
 
 ## Using on Windows
@@ -123,6 +96,7 @@ Wiring colors are :
 4. Red   : 3V3
 5. White : nReset
 6. Black : GND
+You can optionally connect the nReset signal to your serial port nRTS signal and your nBootloader to the nDTR output.
 ![Xiaomi_smart_button](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/Xiaomi_Door_sensor.JPG)
 
 ## Xiaomi smart button
@@ -132,6 +106,7 @@ Wiring colors are :
 4. Red   : 3V3
 5. White : nReset
 6. Black : GND
+You can optionally connect the nReset signal to your serial port nRTS signal and your nBootloader to the nDTR output.
 ![Xiaomi_smart_button](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/Xiaomi_smart_button.JPG)
 
 ## Xiaomi smart button UART1

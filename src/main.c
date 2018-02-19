@@ -5,6 +5,9 @@
 #include "Printf.h"
 #include "UartBuffered.h"
 #include "crc-ccitt.h"
+#ifdef DO_COORD_JOB
+#include "coordinator.h"
+#endif	//def DO_COORD_JOB
 
 // JN5169 air bit rate is 250kbits/s
 
@@ -21,7 +24,6 @@
 //#define XIAOMI_SMART_BUTTON
 #define XIAOMI_SMART_DOOR_SENSOR
 #define HEARTBEAT_LED
-//#define DO_COORD_JOB
 //#define DEBUG_BAUDRATE		TRUE
 
 #if DEBUG_BAUDRATE && !defined(DBG_ENABLE)
@@ -48,12 +50,8 @@
 #define READ_REG32(A)     *(volatile uint32 *)(A)
 
 #define swap32(x)	__builtin_bswap32((x))
-//#define swap16(x)	__builtin_bswap16((x))
-#define swap16(x)	((((x) & 0xFF) << 8) | (((x) >> 8) & 0xFF))
 
 #define isdigit(x)	(((x)>='0') && ((x)<='9'))
-
-#define ARRAY_SIZE(arr)	(sizeof(arr)/sizeof(*arr))
 
 typedef struct pcaprec_hdr_s {
         uint32_t ts_sec;         /* timestamp seconds */
@@ -74,7 +72,11 @@ uint8 au8Uart1RxBuffer[100];
 uint8 g_u8Channel = STARTUP_CHANNEL;
 
 volatile uint32_t g_u32Seconds = 0;
+#ifdef DEBUG_PROTOCOL
+int g_iWSDumpStatus = 1;
+#else
 int g_iWSDumpStatus = 0;
+#endif
 
 const float afFrequencies[] = {
 		2.405e6,
@@ -107,18 +109,7 @@ PRIVATE void SysCtrl_Cb(uint32_t u32Device, uint32_t u32ItemBitmap);
 PRIVATE void WS_Send_Chan_Num(uint8_t u8Channel);
 PRIVATE void WS_Send_Syntax_Error(const char * pBuffer);
 PRIVATE void WS_Send_Test_Packet(void);
-PRIVATE void Dump_Packet(tsPhyFrame * pPHYPacket);
-
-#ifdef DO_COORD_JOB
-PRIVATE void DoCoordJob(tsJPT_PT_Packet * psPacket);
-#endif	//def DO_COORD_JOB
-
-PRIVATE void ZB_Send_Beacon_Request(void);
-#ifdef DO_COORD_JOB
-PRIVATE void ZB_Send_Beacon(void);
-PRIVATE void ZB_Send_Ack(uint8_t seqnum);
-PRIVATE void ZB_Send_Asso_Resp(void);
-#endif	//def DO_COORD_JOB
+PUBLIC void Dump_Packet(tsPhyFrame * pPHYPacket);
 
 PRIVATE void vMMAC_Handler(uint32 u32Param);
 #define NB_PHY_BUFFERS	8
@@ -145,7 +136,7 @@ PUBLIC void AppColdStart(void)
 	vAHI_WatchdogStop();
 #endif
 
-    (void)u32AHI_Init();                              /* initialise hardware API */
+	(void)u32AHI_Init();                              /* initialise hardware API */
 
 	volatile int n;
 	for(n=0;n<100000;n++){}      // wait for JN516X to move onto 32MHz Crystal
@@ -164,7 +155,6 @@ PUBLIC void AppColdStart(void)
 	vInitPrintf((void*)vPutC);	
 	vPrintf("Cleartext log start\n");
 #endif
-	vInitPrintf((void*)vPutC);	
 
 	vMMAC_Enable();
 	vMMAC_EnableInterrupts(vMMAC_Handler);
@@ -216,7 +206,6 @@ PUBLIC void AppColdStart(void)
 		if ((g_u8Channel != u8Channelsave) && g_iWSDumpStatus > 0){
 			WS_Send_Chan_Num(g_u8Channel);
 			u8Channelsave = g_u8Channel;
-			vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
 		}
 
 		uint32_t u32PHYBufRIdx = g_u32PHYBufRIdx;
@@ -224,11 +213,10 @@ PUBLIC void AppColdStart(void)
 			if(g_iWSDumpStatus > 0){
 				Dump_Packet(&PHYBuffer[u32PHYBufRIdx]);
 			}
-			g_u32PHYBufRIdx = (u32PHYBufRIdx + 1) % NB_PHY_BUFFERS;
-
 #if defined(DO_COORD_JOB)
-			DoCoordJob(&sPacket);
+			DoCoordJob(&PHYBuffer[u32PHYBufRIdx]);
 #endif
+			g_u32PHYBufRIdx = (u32PHYBufRIdx + 1) % NB_PHY_BUFFERS;
 		}
 
 #ifdef HEARTBEAT_LED
@@ -264,6 +252,8 @@ PUBLIC void AppColdStart(void)
 				if(bCharBuffer[0]=='C' && bCharBuffer[1]==':' && isdigit(bCharBuffer[2]) && isdigit(bCharBuffer[3])){
 					int chan = (bCharBuffer[2] - '0')*10 + bCharBuffer[3] - '0';
 					if(chan>=11 && chan<=26){
+						g_u8Channel = chan;
+						vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
 					}
 					u8Channelsave = 0;
 				}else if(bCharBuffer[0]=='B' && bCharBuffer[1]=='R' && bCharBuffer[2]=='Q'){
@@ -280,6 +270,8 @@ PUBLIC void AppColdStart(void)
 					if(bCharBuffer[3]==':' && isdigit(bCharBuffer[4]) && isdigit(bCharBuffer[5])){
 						int chan = (bCharBuffer[4] - '0')*10 + bCharBuffer[5] - '0';
 						if(chan>=11 && chan<=26){
+							g_u8Channel = chan;
+							vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
 						}
 					}
 					g_iWSDumpStatus = 1;
@@ -307,6 +299,8 @@ PUBLIC void AppColdStart(void)
 					if(bCharBuffer[3]==':' && isdigit(bCharBuffer[4]) && isdigit(bCharBuffer[5])){
 						int chan = (bCharBuffer[4] - '0')*10 + bCharBuffer[5] - '0';
 						if(chan>=11 && chan<=26){
+							g_u8Channel = chan;
+							vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
 						}
 					}
 					g_iWSDumpStatus = 1;
@@ -337,13 +331,14 @@ PRIVATE void vMMAC_Handler(uint32 u32Param)
 	if(u32Param & E_MMAC_INT_RX_HEADER){
 		uint32_t u32NextWIdx = (g_u32PHYBufWIdx+1) % NB_PHY_BUFFERS;
 		if(u32NextWIdx==g_u32PHYBufRIdx){
-			vPrintf("RX error, buffer overflow!\n");
+//			vPrintf("RX error, buffer overflow!\n");
 		}else{
 			vMMAC_StartPhyReceive(&PHYBuffer[u32NextWIdx], E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
 			g_u32PHYBufWIdx = u32NextWIdx;
 		}
 	}else{
-		vPrintf("vMMAC_Handler(%08x)\n", u32Param);
+//		vPrintf("vMMAC_Handler(%08x)\n", u32Param);
+		vMMAC_StartPhyReceive(&PHYBuffer[g_u32PHYBufWIdx], E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
 	}
 }
 
@@ -530,7 +525,7 @@ PRIVATE void WS_Send_Test_Packet(void)
 	}
 }
 
-PRIVATE void Dump_Packet(tsPhyFrame * pPHYPacket)
+PUBLIC void Dump_Packet(tsPhyFrame * pPHYPacket)
 {
 	int cnt;
 #ifndef DEBUG_PROTOCOL
@@ -561,224 +556,4 @@ PRIVATE void Dump_Packet(tsPhyFrame * pPHYPacket)
 #endif
 }
 
-uint32_t g_u32IEEESeqNumber = 36;
-
-PRIVATE void ZB_Send_Beacon_Request(void)
-{
-#if 0
-	tsJPT_PT_Packet sSendPacket;
-	memset(&sSendPacket, 0xAA, sizeof(sSendPacket));
-	int len = 0;
-// IEEE 802.15.4
-	sSendPacket.u16FrameControl = (2 << 10) | 3;		// Destination address 16 bits, command
-	sSendPacket.u8SequenceNumber = g_u32IEEESeqNumber++;
-	sSendPacket.u16DestinationPanID = 0xFFFF;
-	sSendPacket.u16DestinationShortAddress = 0xFFFF;
-	sSendPacket.u8Payload[len++] = 0x07;			// Command Identifier : Beacon Request
-#if 0
-	uint16_t u16fcs = 0;
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl & 0xFF);				// Little Endian
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl >> 8);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u8SequenceNumber);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16DestinationPanID & 0xFF);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16DestinationPanID >> 8);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16DestinationShortAddress & 0xFF);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16DestinationShortAddress >> 8);
-	u16fcs = crc_ccitt(u16fcs, &sSendPacket.u8Payload[0], len);
-
-	sSendPacket.u8Payload[len++] = u16fcs & 0xFF;		// FCS
-	sSendPacket.u8Payload[len++] = u16fcs >> 8;		// FCS
-#endif
-	sSendPacket.u8PayloadLength = len;
-
-	sSendPacket.bPacketGood = 1;
-//	Dump_Packet(&sSendPacket);
-
-//!!!	vJPT_PacketTx(g_u8Channel, &sSendPacket);
-#endif
-}
-
-#ifdef DO_COORD_JOB
-void DoCoordJob(tsJPT_PT_Packet * psPacket)
-{
-//	tsJPT_PT_Packet sSendPacket;
-	if (psPacket->bPacketGood) {
-		/* look at frame type */
-		if((psPacket->u16FrameControl & 7) == 3){				// MAC Request
-			if(psPacket->u8PayloadLength>0 && psPacket->u8Payload[0]==7){	// Beacon request
-				ZB_Send_Beacon();
-/*				int len = 0;
-// IEEE 802.15.4
-				sSendPacket.u16FrameControl = 2 << 14;			// Source address 16 bits
-				sSendPacket.u8SequenceNumber = g_u32IEEESeqNumber++;
-				sSendPacket.u16SourcePanID = 0x1515;
-				sSendPacket.u16SourceShortAddress = 0x3615;
-				sSendPacket.u8Payload[len++] = 0xFF;			// 16 bits PAN Coordinator, Association permit
-				sSendPacket.u8Payload[len++] = 0xCF;			//
-				sSendPacket.u8Payload[len++] = 0x00;			// GTS
-				sSendPacket.u8Payload[len++] = 0x00;			// Pending addresses
-// ZigBee
-				sSendPacket.u8Payload[len++] = 0x00;			// Protocol ID
-				sSendPacket.u8Payload[len++] = 0x22;			// Beacon
-				sSendPacket.u8Payload[len++] = 0x84;			// 
-				sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID - Should be a random number, but different from other neighbors
-				sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-				sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-				sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-				sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-				sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-				sSendPacket.u8Payload[len++] = 0x15;			// Ext PAN ID
-				sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-				sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
-				sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
-				sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
-				sSendPacket.u8Payload[len++] = 0x00;			// Update ID
-
-#if 0
-				uint16_t u16fcs = 0;
-				u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl & 0xFF);				// Little Endian
-				u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl >> 8);
-				u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u8SequenceNumber);
-				u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16SourcePanID & 0xFF);
-				u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16SourcePanID >> 8);
-				u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16SourceShortAddress & 0xFF);
-				u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16SourceShortAddress >> 8);
-				u16fcs = crc_ccitt(u16fcs, &sSendPacket.u8Payload[0], len);
-
-				sSendPacket.u8Payload[len++] = u16fcs & 0xFF;		// FCS
-				sSendPacket.u8Payload[len++] = u16fcs >> 8;		// FCS
-#endif
-				sSendPacket.u8PayloadLength = len;
-
-				sSendPacket.bPacketGood = 1;
-				Dump_Packet(&sSendPacket);*/
-			}
-		}
-	}
-}
-
-PRIVATE void ZB_Send_Beacon(void)
-{
-	tsJPT_PT_Packet sSendPacket;
-	int len = 0;
-// IEEE 802.15.4
-	sSendPacket.u16FrameControl = (2 << 14);		// Source address 16 bits
-	sSendPacket.u8SequenceNumber = g_u32IEEESeqNumber++;
-	sSendPacket.u16SourcePanID = 0x1516;
-	sSendPacket.u16SourceShortAddress = 0x3615;
-	sSendPacket.u8Payload[len++] = 0xFF;			// 16 bits PAN Coordinator, Association permit
-	sSendPacket.u8Payload[len++] = 0xCF;			//
-	sSendPacket.u8Payload[len++] = 0x00;			// GTS
-	sSendPacket.u8Payload[len++] = 0x00;			// Pending addresses
-// ZigBee
-	sSendPacket.u8Payload[len++] = 0x00;			// Protocol ID
-	sSendPacket.u8Payload[len++] = 0x22;			// Beacon
-	sSendPacket.u8Payload[len++] = 0x84;			// 
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID - Should be a random number, but different from other neighbors
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0x15;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
-	sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
-	sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
-	sSendPacket.u8Payload[len++] = 0x00;			// Update ID
-#if 0
-	uint16_t u16fcs = 0;
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl & 0xFF);				// Little Endian
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl >> 8);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u8SequenceNumber);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16SourcePanID & 0xFF);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16SourcePanID >> 8);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16SourceShortAddress & 0xFF);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16SourceShortAddress >> 8);
-	u16fcs = crc_ccitt(u16fcs, &sSendPacket.u8Payload[0], len);
-
-	sSendPacket.u8Payload[len++] = u16fcs & 0xFF;		// FCS
-	sSendPacket.u8Payload[len++] = u16fcs >> 8;		// FCS
-#endif
-	sSendPacket.u8PayloadLength = len;
-
-	sSendPacket.bPacketGood = 1;
-//	Dump_Packet(&sSendPacket);
-//!!!	vJPT_PacketTx(g_u8Channel, &sSendPacket);
-}
-
-PRIVATE void ZB_Send_Ack(uint8_t seqnum)
-{
-	tsJPT_PT_Packet sSendPacket;
-	int len = 0;
-// IEEE 802.15.4
-	sSendPacket.u16FrameControl = 2;			// Ack
-	sSendPacket.u8SequenceNumber = seqnum;
-#if 0
-	uint16_t u16fcs = 0;
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl & 0xFF);				// Little Endian
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl >> 8);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u8SequenceNumber);
-
-	sSendPacket.u8Payload[len++] = u16fcs & 0xFF;		// FCS
-	sSendPacket.u8Payload[len++] = u16fcs >> 8;		// FCS
-#endif
-	sSendPacket.u8PayloadLength = len;
-
-	sSendPacket.bPacketGood = 1;
-//	Dump_Packet(&sSendPacket);
-///!!!	vJPT_PacketTx(g_u8Channel, &sSendPacket);
-}
-
-PRIVATE void ZB_Send_Asso_Resp(void)
-{
-	tsJPT_PT_Packet sSendPacket;
-	int len = 0;
-// IEEE 802.15.4
-	sSendPacket.u16FrameControl = (3 << 14) | 0xcc63;	// Source address 64 bits
-	sSendPacket.u8SequenceNumber = g_u32IEEESeqNumber++;
-	sSendPacket.u16SourcePanID = 0x1516;
-	sSendPacket.u64SourceExtendedAddress = 0x123456789ABCDEF0;
-	sSendPacket.u64DestinationExtendedAddress = 0xAA55DEADBEEF1234;
-	sSendPacket.u8Payload[len++] = 0x02;			// Command identifier
-	sSendPacket.u8Payload[len++] = 0xCF;			//
-	sSendPacket.u8Payload[len++] = 0x00;			// GTS
-	sSendPacket.u8Payload[len++] = 0x00;			// Pending addresses
-// ZigBee
-	sSendPacket.u8Payload[len++] = 0x00;			// Protocol ID
-	sSendPacket.u8Payload[len++] = 0x22;			// Beacon
-	sSendPacket.u8Payload[len++] = 0x84;			// 
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID - Should be a random number, but different from other neighbors
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0x15;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0x00;			// Ext PAN ID
-	sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
-	sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
-	sSendPacket.u8Payload[len++] = 0xFF;			// Tx Offset
-	sSendPacket.u8Payload[len++] = 0x00;			// Update ID
-#if 0
-	uint16_t u16fcs = 0;
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl & 0xFF);				// Little Endian
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16FrameControl >> 8);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u8SequenceNumber);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16SourcePanID & 0xFF);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16SourcePanID >> 8);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16SourceShortAddress & 0xFF);
-	u16fcs = crc_ccitt_byte(u16fcs, sSendPacket.u16SourceShortAddress >> 8);
-	u16fcs = crc_ccitt(u16fcs, &sSendPacket.u8Payload[0], len);
-
-	sSendPacket.u8Payload[len++] = u16fcs & 0xFF;		// FCS
-	sSendPacket.u8Payload[len++] = u16fcs >> 8;		// FCS
-#endif
-	sSendPacket.u8PayloadLength = len;
-
-	sSendPacket.bPacketGood = 1;
-//	Dump_Packet(&sSendPacket);
-///!!!	vJPT_PacketTx(g_u8Channel, &sSendPacket);
-}
-#endif	//def DO_COORD_JOB
 
