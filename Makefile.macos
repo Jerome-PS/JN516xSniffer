@@ -22,7 +22,7 @@ DEBUG_PORT ?= UART1
 
 ##############################################################################
 # Define TRACE to use with DBG module
-#TRACE ?=1
+TRACE ?=1
 
 ##############################################################################
 # Path definitions
@@ -40,10 +40,10 @@ TOOLCHAIN_PATH      =
 # Application Source files
 
 APPSRC += main.c crc-ccitt.c UartBuffered.c Queue.c Printf.c
-#APPSRC += JN516xSniffer.c
 
 # Specify additional Component libraries
 APPLIBS += MMAC
+APPLIBS += DBG
 
 ##############################################################################
 # Standard Application header search paths

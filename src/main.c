@@ -5,6 +5,8 @@
 #include "Printf.h"
 #include "UartBuffered.h"
 #include "crc-ccitt.h"
+#include "DBG.h"
+#include "DBG_Uart.h"
 
 // JN5169 air bit rate is 250kbits/s
 
@@ -16,7 +18,8 @@
 #define XIAOMI_SMART_DOOR_SENSOR
 #define HEARTBEAT_LED
 
-#define UART_TO_PC              E_AHI_UART_0        /* Uart to PC           */
+#define UART_TO_PC              E_AHI_UART_0        /* Uart to wireshark      */
+#define UART_FOR_DEBUG			E_AHI_UART_1        /* Uart to debug terminal */
 
 #define BAUD_RATE               E_AHI_UART_RATE_115200 /* Baud rate to use   */
 
@@ -35,11 +38,8 @@
 #define READ_REG32(A)     *(volatile uint32 *)(A)
 
 #define swap32(x)	__builtin_bswap32((x))
-//#define swap16(x)	__builtin_bswap16((x))
-#define swap16(x)	((((x) & 0xFF) << 8) | (((x) >> 8) & 0xFF))
 
 #define isdigit(x)	(((x)>='0') && ((x)<='9'))
-
 
 typedef struct pcaprec_hdr_s {
         uint32_t ts_sec;         /* timestamp seconds */
@@ -48,12 +48,20 @@ typedef struct pcaprec_hdr_s {
         uint32_t orig_len;       /* actual length of packet */
 } pcaprec_hdr_t;
 
+struct sTimedPHYFrame {
+	uint32_t	u32Seconds;
+	uint32_t	u32MicroSeconds;
+	tsPhyFrame	sPHYFrame;
+};
+
 /****************************************************************************/
 /***        Local Variables                                               ***/
 /****************************************************************************/
 
 uint8 au8UartTxBuffer[1024];		// Well, this should be overkill at baudrates > 250k
 uint8 au8UartRxBuffer[100];
+uint8 au8Uart1TxBuffer[100];
+uint8 au8Uart1RxBuffer[100];
 
 uint8 g_u8Channel = STARTUP_CHANNEL;
 
@@ -83,19 +91,20 @@ const float afFrequencies[] = {
 /****************************************************************************/
 
 PRIVATE void vPutC(uint8 u8Data);
+PRIVATE void vPutC1(uint8 u8Data);
 PRIVATE char acGetC(void);
 PRIVATE void TickTimer_Cb(uint32_t u32Device, uint32_t u32ItemBitmap);
 
 PRIVATE void WS_Send_Chan_Num(uint8_t u8Channel);
 PRIVATE void WS_Send_Syntax_Error(const char * pBuffer);
 PRIVATE void WS_Send_Test_Packet(void);
-PRIVATE void Dump_Packet(tsPhyFrame * pPHYPacket);
+PRIVATE void Dump_Packet(struct sTimedPHYFrame * pTimedPHYPacket);
 
 PRIVATE void ZB_Send_Beacon_Request(void);
 
 PRIVATE void vMMAC_Handler(uint32 u32Param);
 #define NB_PHY_BUFFERS	8
-tsPhyFrame PHYBuffer[NB_PHY_BUFFERS];
+struct sTimedPHYFrame PHYBuffer[NB_PHY_BUFFERS];
 volatile uint32_t g_u32PHYBufRIdx = 0;
 volatile uint32_t g_u32PHYBufWIdx = 0;
 
@@ -129,16 +138,26 @@ PUBLIC void AppColdStart(void)
 	vAHI_TickTimerInterval(16000000);					// Reference count 1Hz
 	vAHI_TickTimerIntEnable(TRUE);
 	vAHI_TickTimerConfigure(E_AHI_TICK_TIMER_RESTART);
-
+// Init UART 0 for wireshark
 	vAHI_UartSetRTSCTS(UART_TO_PC, FALSE);
 	vUartInit(UART_TO_PC, BAUD_RATE, au8UartTxBuffer, sizeof(au8UartTxBuffer), au8UartRxBuffer, sizeof(au8UartRxBuffer));/* uart for user interface */
+// Init UART 1 for debug
+	vAHI_UartSetLocation(UART_FOR_DEBUG, TRUE);
+	vAHI_UartTxOnly(UART_FOR_DEBUG, TRUE);
+	vUartInit(UART_FOR_DEBUG, BAUD_RATE, au8Uart1TxBuffer, sizeof(au8Uart1TxBuffer), NULL, 0);
+	vInitPrintf((void*)vPutC1);	
+	vPrintf("Cleartext log start\n");
+	
+//	DBG_vUartInit(UART_FOR_DEBUG, DBG_E_UART_BAUD_RATE_115200);
+//	DBG_vPrintf(TRUE, "\nBEN: First Trace in app_start.c->main()->Youppee\n");
+//	DBG_vPrintf(TRUE, "\nBEN: First Trace in app_%dstart.c->main()->Youppee\n", 1234);
 
 	vMMAC_Enable();
 	vMMAC_EnableInterrupts(vMMAC_Handler);
 	vMMAC_ConfigureInterruptSources(E_MMAC_INT_TX_COMPLETE | E_MMAC_INT_RX_HEADER /* | E_MMAC_INT_RX_COMPLETE */);
 	vMMAC_ConfigureRadio();
 	vMMAC_SetChannel(g_u8Channel);
-	vMMAC_StartPhyReceive(&PHYBuffer[g_u32PHYBufWIdx], E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+	vMMAC_StartPhyReceive(&PHYBuffer[g_u32PHYBufWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
 
 #ifdef HEARTBEAT_LED
 	vAHI_DioSetDirection(0x00000000, LED_PIN_BIT);		// Set DIO11 as output (LED)
@@ -187,8 +206,6 @@ PUBLIC void AppColdStart(void)
 			vPrintf("Pair button\n");
 		}
 #endif
-
-//AFAC		vPrintf("DIO: %08x\n", u32AHI_DioReadInput());
 
 		if(bUartRxDataAvailable(UART_TO_PC)){
 			char acKey = acGetC();
@@ -271,16 +288,24 @@ PRIVATE void vMMAC_Handler(uint32 u32Param)
 //	E_MMAC_INT_RX_HEADER
 //	E_MMAC_INT_RX_COMPLETE
 	if(u32Param & E_MMAC_INT_RX_HEADER){
+		uint32_t u32CurWIdx = g_u32PHYBufWIdx;
+		PHYBuffer[u32CurWIdx].u32MicroSeconds = u32AHI_TickTimerRead()/16;
+		if(bAHI_TickTimerIntStatus()){
+			PHYBuffer[u32CurWIdx].u32MicroSeconds = u32AHI_TickTimerRead()/16;
+			PHYBuffer[u32CurWIdx].u32Seconds = g_u32Seconds+1;
+		}else{
+			PHYBuffer[u32CurWIdx].u32Seconds = g_u32Seconds;
+		}
 		uint32_t u32NextWIdx = (g_u32PHYBufWIdx+1) % NB_PHY_BUFFERS;
 		if(u32NextWIdx==g_u32PHYBufRIdx){
 //			vPrintf("RX error, buffer overflow!\n");
 		}else{
-			vMMAC_StartPhyReceive(&PHYBuffer[u32NextWIdx], E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+			vMMAC_StartPhyReceive(&PHYBuffer[u32NextWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
 			g_u32PHYBufWIdx = u32NextWIdx;
 		}
 	}else{
 //		vPrintf("vMMAC_Handler(%08x)\n", u32Param);
-		vMMAC_StartPhyReceive(&PHYBuffer[g_u32PHYBufWIdx], E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+		vMMAC_StartPhyReceive(&PHYBuffer[g_u32PHYBufWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
 	}
 }
 
@@ -291,6 +316,11 @@ PRIVATE void vMMAC_Handler(uint32 u32Param)
 PRIVATE void vPutC(uint8 u8Data)
 {
 	vUartWrite(UART_TO_PC, u8Data);
+}
+
+PRIVATE void vPutC1(uint8 u8Data)
+{
+	vUartWrite(UART_FOR_DEBUG, u8Data);
 }
 
 PRIVATE char acGetC(void)
@@ -413,33 +443,34 @@ PRIVATE void WS_Send_Test_Packet(void)
 	}
 }
 
-PRIVATE void Dump_Packet(tsPhyFrame * pPHYPacket)
+PRIVATE void Dump_Packet(struct sTimedPHYFrame * pTimedPHYPacket)
 {
 	int cnt;
-	uint32_t u32Seconds;
-	uint32_t u32Fraction;
-	uint32_t u32Micros;
-	do{
-		u32Seconds  = g_u32Seconds;
-		u32Fraction = u32AHI_TickTimerRead();
-	}while(u32Seconds!=g_u32Seconds);
-	u32Micros = u32Fraction/16;
+	uint32_t u32T0 = u32AHI_TickTimerRead();
+	uint32_t u32Seconds = pTimedPHYPacket->u32Seconds;
+	uint32_t u32Micros  = pTimedPHYPacket->u32MicroSeconds;
 
 	vPutC(u32Seconds >>  0); vPutC(u32Seconds >>  8); vPutC(u32Seconds >> 16); vPutC(u32Seconds >> 24);
 	vPutC(u32Micros  >>  0); vPutC(u32Micros  >>  8); vPutC(u32Micros  >> 16); vPutC(u32Micros  >> 24);
-	vPutC( pPHYPacket->u8PayloadLength ); vPutC(0); vPutC(0); vPutC(0);
-	vPutC( pPHYPacket->u8PayloadLength ); vPutC(0); vPutC(0); vPutC(0);
+	vPutC( pTimedPHYPacket->sPHYFrame.u8PayloadLength ); vPutC(0); vPutC(0); vPutC(0);
+	vPutC( pTimedPHYPacket->sPHYFrame.u8PayloadLength ); vPutC(0); vPutC(0); vPutC(0);
 
-	for(cnt = 0; cnt < pPHYPacket->u8PayloadLength; cnt++){
-		vPutC( pPHYPacket->uPayload.au8Byte[cnt] );
+	uint8_t * pPayload = pTimedPHYPacket->sPHYFrame.uPayload.au8Byte;
+	for(cnt = 0; cnt < pTimedPHYPacket->sPHYFrame.u8PayloadLength; cnt++){
+		vPutC( pPayload[cnt] );
 	}
+	
+	u32T0 = u32AHI_TickTimerRead() - u32T0;
+//	DBG_vPrintf(TRUE, "Took %d us to dump packet\n", u32T0);
+//	vPrintf("Took %d us to dump a %d bytes long packet\n", u32T0, pTimedPHYPacket->sPHYFrame.u8PayloadLength + 4*sizeof(uint32_t));
 }
 
 uint32_t g_u32IEEESeqNumber = 36;
 
-tsPhyFrame sSendPacket;
+struct sTimedPHYFrame sSendPacket;
 PRIVATE void ZB_Send_Beacon_Request(void)
 {
+	tsPhyFrame * pSendPacket = &sSendPacket.sPHYFrame;
 	memset(&sSendPacket, 0xAA, sizeof(sSendPacket));
 	int len = 0;
 // IEEE 802.15.4
@@ -449,27 +480,24 @@ PRIVATE void ZB_Send_Beacon_Request(void)
 	uint16_t u16DstAddr = 0xFFFF;
 	uint8_t       u8Cmd = 0x07;			// Command Identifier : Beacon Request
 
-	sSendPacket.uPayload.au8Byte[len++] = u16FCF & 0xFF;				// Little Endian
-	sSendPacket.uPayload.au8Byte[len++] = u16FCF >> 8;
-	sSendPacket.uPayload.au8Byte[len++] = u8SeqNum;
-	sSendPacket.uPayload.au8Byte[len++] = u16DstPAN & 0xFF;
-	sSendPacket.uPayload.au8Byte[len++] = u16DstPAN >> 8;
-	sSendPacket.uPayload.au8Byte[len++] = u16DstAddr & 0xFF;
-	sSendPacket.uPayload.au8Byte[len++] = u16DstAddr >> 8;
-	sSendPacket.uPayload.au8Byte[len++] = u8Cmd;
+	pSendPacket->uPayload.au8Byte[len++] = u16FCF & 0xFF;				// Little Endian
+	pSendPacket->uPayload.au8Byte[len++] = u16FCF >> 8;
+	pSendPacket->uPayload.au8Byte[len++] = u8SeqNum;
+	pSendPacket->uPayload.au8Byte[len++] = u16DstPAN & 0xFF;
+	pSendPacket->uPayload.au8Byte[len++] = u16DstPAN >> 8;
+	pSendPacket->uPayload.au8Byte[len++] = u16DstAddr & 0xFF;
+	pSendPacket->uPayload.au8Byte[len++] = u16DstAddr >> 8;
+	pSendPacket->uPayload.au8Byte[len++] = u8Cmd;
 
 	uint16_t u16fcs = 0;
-	u16fcs = crc_ccitt(u16fcs, &sSendPacket.uPayload.au8Byte[0], len);
+	u16fcs = crc_ccitt(u16fcs, &pSendPacket->uPayload.au8Byte[0], len);
 
-	sSendPacket.uPayload.au8Byte[len++] = u16fcs & 0xFF;		// FCS
-	sSendPacket.uPayload.au8Byte[len++] = u16fcs >> 8;		// FCS
+	pSendPacket->uPayload.au8Byte[len++] = u16fcs & 0xFF;		// FCS
+	pSendPacket->uPayload.au8Byte[len++] = u16fcs >> 8;		// FCS
 
-	sSendPacket.u8PayloadLength = len;
-	sSendPacket.au8Padding[0] = 0;
-	sSendPacket.au8Padding[1] = 0;
-	sSendPacket.au8Padding[2] = 0;
+	pSendPacket->u8PayloadLength = len;
 	Dump_Packet(&sSendPacket);
-	vMMAC_StartPhyTransmit(&sSendPacket, E_MMAC_TX_START_NOW | E_MMAC_TX_NO_CCA);
+	vMMAC_StartPhyTransmit(pSendPacket, E_MMAC_TX_START_NOW | E_MMAC_TX_NO_CCA);
 }
 
 

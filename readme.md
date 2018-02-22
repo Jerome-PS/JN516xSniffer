@@ -7,18 +7,21 @@ Start sniffing session from terminal:
 ```
 ./Sniff.py /dev/ttyUSB0
 ```
+Running `./Sniff.py -h` will give you a list of detected serial ports.
 
 ## Quickstart on macOS
 Start sniffing session from terminal:
 ```
 ./Sniff.py /dev/cu.usbserial
 ```
+Running `./Sniff.py -h` will give you a list of detected serial ports.
 
 ## Quickstart on Windows
 Open command line, cd to the folder containing the scripts and launch:
 ```
 python Sniff.py COM3
 ```
+Running `python Sniff.py -h` will give you a list of detected serial ports.
 
 # Table Of Content
 - [Compiling the sniffer](#Compiling-the-sniffer)
@@ -93,6 +96,7 @@ Wiring colors are :
 4. Red   : 3V3
 5. White : nReset
 6. Black : GND
+You can optionally connect the nReset signal to your serial port nRTS signal and your nBootloader to the nDTR output.
 ![Xiaomi_smart_button](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/Xiaomi_Door_sensor.JPG)
 
 ## Xiaomi smart button
@@ -102,6 +106,7 @@ Wiring colors are :
 4. Red   : 3V3
 5. White : nReset
 6. Black : GND
+You can optionally connect the nReset signal to your serial port nRTS signal and your nBootloader to the nDTR output.
 ![Xiaomi_smart_button](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/Xiaomi_smart_button.JPG)
 
 ## Xiaomi smart button UART1
@@ -135,4 +140,11 @@ If you get stuck with remaining data in the FIFO that repeatedly crashes wiresha
 ```
 rm -f /tmp/sharkfifo && mkfifo /tmp/sharkfifo
 ```
+
+# Gory details
+Original serial queuing functions took 43125us for 26 bytes (166us/byte) and 4923 us for 31 bytes (159us/byte) with a 115200 baud/s UART
+and 10272us for 26 bytes (395us/byte) and 12860 for 31 bytes (415us/byte) with a 1MBaud/s UART!!! What the hell?
+memcpy algo takes 636 us for 26 bytes (24us/byte) and 848 for 43 bytes (20us/byte).
+The longer runtime/byte might come from the fact that the likeliness of having time stolen by an ISR is higher if you take more time. I might do some additional tests with disabled IT to try and get more consistent results...
+
 
