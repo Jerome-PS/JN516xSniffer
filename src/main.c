@@ -5,8 +5,9 @@
 #include "Printf.h"
 #include "UartBuffered.h"
 #include "crc-ccitt.h"
-#include "DBG.h"
-#include "DBG_Uart.h"
+#include "dbg.h"
+#include "dbg_uart.h"
+#include "utils.h"
 
 // JN5169 air bit rate is 250kbits/s
 
@@ -19,7 +20,7 @@
 #define HEARTBEAT_LED
 
 #define UART_TO_PC              E_AHI_UART_0        /* Uart to wireshark      */
-#define UART_FOR_DEBUG			E_AHI_UART_1        /* Uart to debug terminal */
+#define UART_FOR_DEBUG          E_AHI_UART_1        /* Uart to debug terminal */
 
 #define BAUD_RATE               E_AHI_UART_RATE_115200 /* Baud rate to use   */
 
@@ -35,12 +36,6 @@
 #define PAIR_PIN_BIT			(1 <<  0)
 #endif //def XIAOMI_SMART_BUTTON
 
-#define READ_REG32(A)     *(volatile uint32 *)(A)
-
-#define swap32(x)	__builtin_bswap32((x))
-
-#define isdigit(x)	(((x)>='0') && ((x)<='9'))
-
 typedef struct pcaprec_hdr_s {
         uint32_t ts_sec;         /* timestamp seconds */
         uint32_t ts_usec;        /* timestamp microseconds */
@@ -51,6 +46,7 @@ typedef struct pcaprec_hdr_s {
 struct sTimedPHYFrame {
 	uint32_t	u32Seconds;
 	uint32_t	u32MicroSeconds;
+	uint32_t	u32IncLen;
 	tsPhyFrame	sPHYFrame;
 };
 
@@ -66,6 +62,8 @@ uint8 au8Uart1RxBuffer[100];
 uint8 g_u8Channel = STARTUP_CHANNEL;
 
 volatile uint32_t g_u32Seconds = 0;
+uint32_t g_u32SymbolCounter = 0;
+uint32_t g_u32SymbolSeconds = 0;
 int g_iWSDumpStatus = 0;
 
 const float afFrequencies[] = {
@@ -103,10 +101,10 @@ PRIVATE void Dump_Packet(struct sTimedPHYFrame * pTimedPHYPacket);
 PRIVATE void ZB_Send_Beacon_Request(void);
 
 PRIVATE void vMMAC_Handler(uint32 u32Param);
-#define NB_PHY_BUFFERS	8
-struct sTimedPHYFrame PHYBuffer[NB_PHY_BUFFERS];
-volatile uint32_t g_u32PHYBufRIdx = 0;
-volatile uint32_t g_u32PHYBufWIdx = 0;
+#define NB_PHY_BUFFERS_RX	8
+struct sTimedPHYFrame PHYBufferRx[NB_PHY_BUFFERS_RX];
+volatile uint32_t g_u32PHYBufRxRIdx = 0;
+volatile uint32_t g_u32PHYBufRxWIdx = 0;
 
 /****************************************************************************/
 /***        Exported Functions                                            ***/
@@ -157,7 +155,7 @@ PUBLIC void AppColdStart(void)
 	vMMAC_ConfigureInterruptSources(E_MMAC_INT_TX_COMPLETE | E_MMAC_INT_RX_HEADER /* | E_MMAC_INT_RX_COMPLETE */);
 	vMMAC_ConfigureRadio();
 	vMMAC_SetChannel(g_u8Channel);
-	vMMAC_StartPhyReceive(&PHYBuffer[g_u32PHYBufWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+	vMMAC_StartPhyReceive(&PHYBufferRx[g_u32PHYBufRxWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
 
 #ifdef HEARTBEAT_LED
 	vAHI_DioSetDirection(0x00000000, LED_PIN_BIT);		// Set DIO11 as output (LED)
@@ -178,12 +176,12 @@ PUBLIC void AppColdStart(void)
 			u8Channelsave = g_u8Channel;
 		}
 
-		uint32_t u32PHYBufRIdx = g_u32PHYBufRIdx;
-		if(g_u32PHYBufWIdx!=u32PHYBufRIdx){
+		uint32_t u32PHYBufRIdx = g_u32PHYBufRxRIdx;
+		if(g_u32PHYBufRxWIdx!=u32PHYBufRIdx){
 			if(g_iWSDumpStatus > 0){
-				Dump_Packet(&PHYBuffer[u32PHYBufRIdx]);
+				Dump_Packet(&PHYBufferRx[u32PHYBufRIdx]);
 			}
-			g_u32PHYBufRIdx = (u32PHYBufRIdx + 1) % NB_PHY_BUFFERS;
+			g_u32PHYBufRxRIdx = (u32PHYBufRIdx + 1) % NB_PHY_BUFFERS_RX;
 		}
 
 #ifdef HEARTBEAT_LED
@@ -288,24 +286,25 @@ PRIVATE void vMMAC_Handler(uint32 u32Param)
 //	E_MMAC_INT_RX_HEADER
 //	E_MMAC_INT_RX_COMPLETE
 	if(u32Param & E_MMAC_INT_RX_HEADER){
-		uint32_t u32CurWIdx = g_u32PHYBufWIdx;
-		PHYBuffer[u32CurWIdx].u32MicroSeconds = u32AHI_TickTimerRead()/16;
-		if(bAHI_TickTimerIntStatus()){
-			PHYBuffer[u32CurWIdx].u32MicroSeconds = u32AHI_TickTimerRead()/16;
-			PHYBuffer[u32CurWIdx].u32Seconds = g_u32Seconds+1;
-		}else{
-			PHYBuffer[u32CurWIdx].u32Seconds = g_u32Seconds;
+		uint32_t u32CurWIdx = g_u32PHYBufRxWIdx;
+		uint32_t u32SymbolTime = u32MMAC_GetRxTime();
+// Worst case for this loop is the number of seconds since the last received frame, which should anyway be bounded
+		while(u32SymbolTime-g_u32SymbolCounter>62500){
+			g_u32SymbolCounter += 62500;
+			g_u32SymbolSeconds++;
 		}
-		uint32_t u32NextWIdx = (g_u32PHYBufWIdx+1) % NB_PHY_BUFFERS;
-		if(u32NextWIdx==g_u32PHYBufRIdx){
+		PHYBufferRx[u32CurWIdx].u32MicroSeconds = (u32SymbolTime-g_u32SymbolCounter) * 16;
+		PHYBufferRx[u32CurWIdx].u32Seconds = g_u32SymbolSeconds;
+		uint32_t u32NextWIdx = (u32CurWIdx+1) % NB_PHY_BUFFERS_RX;
+		if(u32NextWIdx==g_u32PHYBufRxRIdx){
 //			vPrintf("RX error, buffer overflow!\n");
 		}else{
-			vMMAC_StartPhyReceive(&PHYBuffer[u32NextWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
-			g_u32PHYBufWIdx = u32NextWIdx;
+			vMMAC_StartPhyReceive(&PHYBufferRx[u32NextWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+			g_u32PHYBufRxWIdx = u32NextWIdx;
 		}
 	}else{
 //		vPrintf("vMMAC_Handler(%08x)\n", u32Param);
-		vMMAC_StartPhyReceive(&PHYBuffer[g_u32PHYBufWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+		vMMAC_StartPhyReceive(&PHYBufferRx[g_u32PHYBufRxWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
 	}
 }
 
@@ -328,10 +327,16 @@ PRIVATE char acGetC(void)
 	return(u8UartRead(UART_TO_PC));
 }
 
-
+// 68719x62500=0xFFFF8B9C	68720x62500=0x00007FC0
 PRIVATE void TickTimer_Cb(uint32_t u32Device, uint32_t u32ItemBitmap)
 {
 	g_u32Seconds++;
+// This processing is done in the Rx ISR, because the loop will be taken a number of times equal to the number of seconds elapsed since the last received packet.
+//	uint32_t u32SymbolTime = u32MMAC_GetTime();
+//	while(u32SymbolTime-g_u32SymbolCounter>62500){
+//		g_u32SymbolCounter += 62500;
+//		g_u32SymbolSeconds++;
+//	}
 }
 
 PRIVATE void WS_Send_Chan_Num(uint8_t u8Channel)
@@ -345,8 +350,8 @@ PRIVATE void WS_Send_Chan_Num(uint8_t u8Channel)
 		u32Seconds  = g_u32Seconds;
 		u32Fraction = u32AHI_TickTimerRead();
 	}while(u32Seconds!=g_u32Seconds);
-	pcap_rec_hdr.ts_sec  = swap32(u32Seconds);
-	pcap_rec_hdr.ts_usec = swap32(u32Fraction/16);			// 16 MHz
+	pcap_rec_hdr.ts_sec  = cpu_to_le32(u32Seconds);
+	pcap_rec_hdr.ts_usec = cpu_to_le32(u32Fraction/16);		// 16 MHz
 	dataFrame[lenval++] = 0x07;					// Unknown packet type
 	dataFrame[lenval++] = 0x00;					// Unknown packet type
 	dataFrame[lenval++] = 0x00;					// Sequence number
@@ -356,8 +361,8 @@ PRIVATE void WS_Send_Chan_Num(uint8_t u8Channel)
 	dataFrame[lenval++] = ((uint8_t*)&fFreq)[1];
 	dataFrame[lenval++] = ((uint8_t*)&fFreq)[2];
 	dataFrame[lenval++] = ((uint8_t*)&fFreq)[3];
-	pcap_rec_hdr.incl_len = swap32(lenval);
-	pcap_rec_hdr.orig_len = swap32(lenval);
+	pcap_rec_hdr.incl_len = cpu_to_le32(lenval);
+	pcap_rec_hdr.orig_len = cpu_to_le32(lenval);
 	int ws_snd_cnt;
 	for(ws_snd_cnt=0;ws_snd_cnt<sizeof(pcap_rec_hdr);ws_snd_cnt++){
 		vPutC(((uint8_t*)&pcap_rec_hdr)[ws_snd_cnt]);
@@ -378,8 +383,8 @@ PRIVATE void WS_Send_Syntax_Error(const char * pBuffer)
 		u32Seconds  = g_u32Seconds;
 		u32Fraction = u32AHI_TickTimerRead();
 	}while(u32Seconds!=g_u32Seconds);
-	pcap_rec_hdr.ts_sec  = swap32(u32Seconds);
-	pcap_rec_hdr.ts_usec = swap32(u32Fraction/16);			// 16 MHz
+	pcap_rec_hdr.ts_sec  = cpu_to_le32(u32Seconds);
+	pcap_rec_hdr.ts_usec = cpu_to_le32(u32Fraction/16);		// 16 MHz
 	dataFrame[lenval++] = 0x07;					// Unknown packet type
 	dataFrame[lenval++] = 0x00;					// Unknown packet type
 	dataFrame[lenval++] = 0x01;					// Sequence number
@@ -397,8 +402,8 @@ PRIVATE void WS_Send_Syntax_Error(const char * pBuffer)
 		dataFrame[lenval++] = pBuffer[bptr++];
 	}
 	dataFrame[lenval++] = 0;
-	pcap_rec_hdr.incl_len = swap32(lenval);
-	pcap_rec_hdr.orig_len = swap32(lenval);
+	pcap_rec_hdr.incl_len = cpu_to_le32(lenval);
+	pcap_rec_hdr.orig_len = cpu_to_le32(lenval);
 	int ws_snd_cnt;
 	for(ws_snd_cnt=0;ws_snd_cnt<sizeof(pcap_rec_hdr);ws_snd_cnt++){
 		vPutC(((uint8_t*)&pcap_rec_hdr)[ws_snd_cnt]);
@@ -462,7 +467,7 @@ PRIVATE void Dump_Packet(struct sTimedPHYFrame * pTimedPHYPacket)
 	
 	u32T0 = u32AHI_TickTimerRead() - u32T0;
 //	DBG_vPrintf(TRUE, "Took %d us to dump packet\n", u32T0);
-//	vPrintf("Took %d us to dump a %d bytes long packet\n", u32T0, pTimedPHYPacket->sPHYFrame.u8PayloadLength + 4*sizeof(uint32_t));
+	vPrintf("Took %d us to dump a %d bytes long packet\n", u32T0, pTimedPHYPacket->sPHYFrame.u8PayloadLength + 4*sizeof(uint32_t));
 }
 
 uint32_t g_u32IEEESeqNumber = 36;
