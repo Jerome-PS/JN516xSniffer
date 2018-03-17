@@ -77,7 +77,7 @@ PUBLIC bool_t bUartReadBinary(uint8 u8Uart, uint8 *pu8Ptr, uint32 u32Len, uint32
 PUBLIC bool_t bUartReadWithTimeout(uint8 u8Uart, uint8 *pu8Data, uint32 u32TimeoutTime);
 PUBLIC bool_t bUartTxInProgress(uint8 u8Uart);
 PUBLIC bool_t bUartRxDataAvailable(uint8 u8Uart);
-PUBLIC void vUartWriteBinary(uint8 u8Uart, uint8 *pu8Ptr, uint32 u32Len);
+PUBLIC uint32 u32UartWriteBinary(uint8 u8Uart, const uint8 *pu8Ptr, uint32 u32Len);
 PUBLIC void vUartWriteString(uint8 u8Uart, uint8 *pu8String);
 PUBLIC void vUartDeInit(uint8 u8Uart);
 PUBLIC void vUartFlush(uint8 u8Uart);

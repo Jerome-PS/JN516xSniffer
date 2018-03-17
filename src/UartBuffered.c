@@ -470,7 +470,7 @@ PUBLIC bool_t bUartRxDataAvailable(uint8 u8Uart)
 #ifdef UART_EXTRAS
 /****************************************************************************
  *
- * NAME:       vUartWriteBinary
+ * NAME:       u32UartWriteBinary
  *
  * DESCRIPTION:
  * Writes a specified number of bytes to the uart.
@@ -482,18 +482,22 @@ PUBLIC bool_t bUartRxDataAvailable(uint8 u8Uart)
  *                  u32Len          R   Number of bytes to send
  *
  * RETURNS:
- * void
+ * Number of byte pushed into the FIFO.
  *
  ****************************************************************************/
-PUBLIC void vUartWriteBinary(uint8 u8Uart, uint8 *pu8Ptr, uint32 u32Len)
+PUBLIC uint32 u32UartWriteBinary(uint8 u8Uart, const uint8 *pu8Ptr, uint32 u32Len)
 {
+	uint32 u32NbWritten = bQueue_WriteBlock(&asUart_TxQueue[u8Uart], pu8Ptr, u32Len);
+	
+	// Check if we need to start the ISR pump
+	if ((u8AHI_UartReadLineStatus(u8Uart) & (E_AHI_UART_LS_THRE|E_AHI_UART_LS_TEMT)) == (E_AHI_UART_LS_THRE|E_AHI_UART_LS_TEMT)){
+		uint8 u8Data;
+		if(bQueue_Read(&asUart_TxQueue[u8Uart], &u8Data)){
+			vAHI_UartWriteData(u8Uart, u8Data);
+		}
+	}
 
-    uint32 n;
-
-    for(n = 0; n < u32Len; n++){
-        vUartWrite(u8Uart, *pu8Ptr++);
-    }
-
+	return u32NbWritten;
 }
 #endif
 

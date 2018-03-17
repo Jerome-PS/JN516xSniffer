@@ -94,7 +94,7 @@ do
 --			subtree:add(f_channum1,chan)
 --			subtree:add(f_chanfrq1,freq/1000000):append_text("GHz")
 		elseif(ftyp==1)then
-			pkt.cols.info = "Syntax error, could not interprete command."
+			pkt.cols.info = "Syntax error, could not interpret command."
 		end
 	end
 

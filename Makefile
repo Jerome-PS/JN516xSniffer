@@ -14,7 +14,6 @@ JENNIC_SDK ?= JN-SW-4163
 # Select the network stack (e.g. MAC, ZBPRO)
 
 JENNIC_STACK ?= None
-###TODO: Check this
 
 ##############################################################################
 # Debug options define DEBUG for HW debug
@@ -51,7 +50,7 @@ APPLIBS += DBG
 ##############################################################################
 # Standard Application header search paths
 
-INCFLAGS += -I$(COMPONENTS_BASE_DIR)/ProductionTestApi/Include
+INCFLAGS += -I$(COMPONENTS_BASE_DIR)/MicroSpecific/Include
 INCFLAGS += -Iinc
 
 ##############################################################################
@@ -65,6 +64,7 @@ include $(SDK_BASE_DIR)/Stack/Common/Build/config.mk
 ###TODO: change this
 INCFLAGS += -I$(TOOL_COMMON_BASE_DIR)/$(TOOLCHAIN_PATH)/include
 LDFLAGS += -fno-lto
+INCFLAGS += -I$(SDK_BASE_DIR)/Components/Xcv/Include
 
 ##############################################################################
 
@@ -116,6 +116,11 @@ $(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).elf: $(APPOBJS) $(addsuffix _$(
 	$(info Linking $@ ...)
 	$(CC) -Wl,--gc-sections -Wl,-u_AppColdStart -Wl,-u_AppWarmStart $(LDFLAGS) -T$(LINKCMD) -o $@ $(APPOBJS) -Wl,--start-group  $(addprefix -l,$(LDLIBS)) -Wl,--end-group -Wl,-Map,$(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).map 
 	${SIZE} $@
+	@echo
+
+$(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).dis: $(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).elf
+	$(info Disassembling $< to $@ ...)
+	$(OBJDUMP) -S $< > $@
 	@echo
 
 $(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).bin: $(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).elf $(THIS_MAKEFILE)

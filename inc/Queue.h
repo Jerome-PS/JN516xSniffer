@@ -73,6 +73,7 @@ typedef struct
 PUBLIC void vQueue_Init(tsQueue *psQueue, uint8 *pau8Buffer, uint32 u32Length);
 PUBLIC void vQueue_Flush(tsQueue *psQueue);
 PUBLIC bool bQueue_Write(tsQueue *psQueue, uint8 u8Item);
+PUBLIC uint32 bQueue_WriteBlock(tsQueue *psQueue, const uint8 * pu8Item, uint32 u32Len);
 PUBLIC bool bQueue_Read(tsQueue *psQueue, uint8 *pu8Item);
 PUBLIC bool bQueue_IsEmpty(tsQueue *psQueue);
 PUBLIC bool bQueue_IsFull(tsQueue *psQueue);
