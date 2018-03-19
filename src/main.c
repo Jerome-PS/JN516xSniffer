@@ -11,6 +11,8 @@
 #include "crc-ccitt.h"
 #include "utils.h"
 
+//#define USE_MAC_RCV
+
 /****************************************************************************/
 /***        Macro Definitions                                             ***/
 /****************************************************************************/
@@ -46,11 +48,15 @@ typedef struct pcaprec_hdr_s {
         uint32_t orig_len;       /* actual length of packet */
 } pcaprec_hdr_t;
 
-struct sTimedPHYFrame {
+struct sTimedModemFrame {
 	uint32_t	u32Seconds;
 	uint32_t	u32MicroSeconds;
 	uint32_t	u32IncLen;
+#if defined(USE_MAC_RCV)
+	tsMacFrame	sMACFrame;
+#else
 	tsPhyFrame	sPHYFrame;
+#endif
 };
 
 /****************************************************************************/
@@ -99,15 +105,15 @@ PRIVATE void TickTimer_Cb(uint32_t u32Device, uint32_t u32ItemBitmap);
 PRIVATE void WS_Send_Chan_Num(uint8_t u8Channel);
 PRIVATE void WS_Send_Syntax_Error(const char * pBuffer);
 PRIVATE void WS_Send_Test_Packet(void);
-PRIVATE void Dump_Packet(struct sTimedPHYFrame * pTimedPHYPacket);
+PRIVATE void Dump_Packet(struct sTimedModemFrame * pTimedModemPacket);
 
 PRIVATE void ZB_Send_Beacon_Request(void);
 
 PRIVATE void vMMAC_Handler(uint32 u32Param);
-#define NB_PHY_BUFFERS_RX	8
-struct sTimedPHYFrame PHYBufferRx[NB_PHY_BUFFERS_RX];
-volatile uint32_t g_u32PHYBufRxRIdx = 0;
-volatile uint32_t g_u32PHYBufRxWIdx = 0;
+#define NB_MODEM_BUFFERS_RX	16
+struct sTimedModemFrame ModemBufferRx[NB_MODEM_BUFFERS_RX];
+volatile uint32_t g_u32ModemBufRxRIdx = 0;
+volatile uint32_t g_u32ModemBufRxWIdx = 0;
 
 uint8_t g_u8BbcBuf[284];
 uint8_t g_u8TxBuf[284*8];
@@ -164,8 +170,8 @@ extern uint32_t restore_state;
 //extern uint8_t u8SctlMask;
 //	DBG_vPrintf(TRUE, "&u8SctlMask = %08x\n", &u8SctlMask);
 //extern uint32_t isr_handlers;
-	DBG_vPrintf(TRUE, "&restore_state = %08x\n", &isr_handlers);
-
+	DBG_vPrintf(TRUE, "&isr_handlers = %08x\n", &isr_handlers);
+/*
 	DBG_vPrintf(TRUE, "Dump Bootflash");
 	uint8_t * pBF = 0x00000000;
 	int cnt;
@@ -173,7 +179,7 @@ extern uint32_t restore_state;
 		if(!(cnt%16)){DBG_vPrintf(TRUE, "\n");}
 		DBG_vPrintf(TRUE, "%02x ", pBF[cnt]);
 	}
-
+*/
 // Lower UART ISR priority
 	vAHI_InterruptSetPriority(MICRO_ISR_MASK_UART0 | MICRO_ISR_MASK_UART1, 1);		// 0 is ISR off, 1 is lowest priority, 15 is highest priority
 
@@ -183,7 +189,7 @@ extern uint32_t restore_state;
 	memset(g_u8BbcBuf, 0xAA, sizeof(g_u8BbcBuf));
 
 	vMMAC_Enable();
-#if 1
+#if 0
 	XCV_vDevWriteReg32(0, XCV_BASE, XCV_u32DevReadReg(0, XCV_BASE) | 0x1000);						DBG_vPrintf(TRUE, "1");
 	XCV_vDevWriteReg32(0, XCV_REG_IER, 0);															DBG_vPrintf(TRUE, "2");
 	XCV_vDevWriteReg32(0, XCV_REG_ISR, 0xffff);														DBG_vPrintf(TRUE, "3");
@@ -197,22 +203,42 @@ extern uint32_t restore_state;
 //	vMMAC_Enable();
 	vMMAC_EnableInterrupts(vMMAC_Handler);
 	vMMAC_ConfigureInterruptSources(E_MMAC_INT_TX_COMPLETE | E_MMAC_INT_RX_HEADER /* | E_MMAC_INT_RX_COMPLETE */);
+//	vMMAC_ConfigureInterruptSources(E_MMAC_INT_TX_COMPLETE /* | E_MMAC_INT_RX_HEADER */ | E_MMAC_INT_RX_COMPLETE);
 	vMMAC_ConfigureRadio();
 	vMMAC_SetChannel(g_u8Channel);
-//	vMMAC_StartPhyReceive(&PHYBufferRx[g_u32PHYBufRxWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+#if defined(USE_MAC_RCV)
+	vMMAC_StartMacReceive(&ModemBufferRx[g_u32ModemBufRxWIdx].sMACFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_NO_AUTO_ACK | E_MMAC_RX_ALLOW_MALFORMED | E_MMAC_RX_ALLOW_FCS_ERROR | E_MMAC_RX_NO_ADDRESS_MATCH);
+#else
+//	vMMAC_StartPhyReceive(&ModemBufferRx[g_u32ModemBufRxWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
 #endif
+#else
+	bJPT_InitRadio_JN5169
+	vJPT_SetMaxInputLevel
+#endif
+
+//	vMMAC_StartMacReceive(&ModemBufferRx[g_u32ModemBufRxWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_NO_AUTO_ACK | E_MMAC_RX_ALLOW_MALFORMED | E_MMAC_RX_ALLOW_FCS_ERROR | E_MMAC_RX_NO_ADDRESS_MATCH);
+//	vMMAC_StartPhyReceive(&ModemBufferRx[g_u32ModemBufRxWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+
+// C'est ici que ça se passe -- début
+
+// Ça ça ignore complètement les ACK
+//	XCV_vDevWriteReg32(0, XCV_REG_PHY_IS, 0x80);	DBG_vPrintf(TRUE, "B");
+//	XCV_vDevWriteReg32(0, XCV_REG_PRTT, 0);			DBG_vPrintf(TRUE, "C");
+// Ça ça ignore complètement les ACK
+
 #if 1
-	XCV_vDevWriteReg32(0, XCV_REG_PHY_IS, 0x80);	DBG_vPrintf(TRUE, "B");
-	XCV_vDevWriteReg32(0, XCV_REG_PRTT, 0);			DBG_vPrintf(TRUE, "C");
-	XCV_vDevWriteReg32(0, XCV_REG_TAT, 0);			DBG_vPrintf(TRUE, "D");
-	XCV_vDevWriteReg32(0, XCV_TI_OFFSET+32, 0);		DBG_vPrintf(TRUE, "E");
-//	XCV_vDevWriteReg32(0, XCV_REG_RXBUFAD, &ModemBufferRx[g_u32ModemBufRxWIdx].sPHYFrame);	DBG_vPrintf(TRUE, "F");
-	XCV_vDevWriteReg32(0, XCV_REG_IER, 6);			DBG_vPrintf(TRUE, "G");
-	XCV_vDevWriteReg32(0, XCV_REG_TXCTL, 0);		DBG_vPrintf(TRUE, "H");
-	XCV_vDevWriteReg32(0, XCV_REG_PHY_CTRL, XCV_u32DevReadReg(0, XCV_REG_PHY_CTRL) | 1);	DBG_vPrintf(TRUE, "I");
-	XCV_vDevWriteReg32(0, XCV_REG_RXPROM, (XCV_u32DevReadReg(0, XCV_REG_RXPROM) & 0xfffffffc) | XCV_REG_RXPROM_FCSE_MASK);	/* E_MMAC_RX_ALLOW_FCS_ERROR */ DBG_vPrintf(TRUE, "J");
-	XCV_vDevWriteReg32(0, XCV_REG_PRTT, 0);			DBG_vPrintf(TRUE, "K");
+//	XCV_vDevWriteReg32(0, XCV_REG_PHY_IS, 0x80);	DBG_vPrintf(TRUE, "B");
+//	XCV_vDevWriteReg32(0, XCV_REG_PRTT, 0);			DBG_vPrintf(TRUE, "C");
+//?	XCV_vDevWriteReg32(0, XCV_REG_TAT, 0);			DBG_vPrintf(TRUE, "D");
+	XCV_vDevWriteReg32(0, XCV_TI_OFFSET+32, 0);		DBG_vPrintf(TRUE, "E");					// <<< OK, ça a l'air d'être celui-là
+//x	XCV_vDevWriteReg32(0, XCV_REG_RXBUFAD, &ModemBufferRx[g_u32ModemBufRxWIdx].sPHYFrame);	DBG_vPrintf(TRUE, "F");
+//	XCV_vDevWriteReg32(0, XCV_REG_IER, 6);			DBG_vPrintf(TRUE, "G");
+//	XCV_vDevWriteReg32(0, XCV_REG_TXCTL, 0);		DBG_vPrintf(TRUE, "H");
+//	XCV_vDevWriteReg32(0, XCV_REG_PHY_CTRL, XCV_u32DevReadReg(0, XCV_REG_PHY_CTRL) | 1);	DBG_vPrintf(TRUE, "I");
+//.	XCV_vDevWriteReg32(0, XCV_REG_RXPROM, (XCV_u32DevReadReg(0, XCV_REG_RXPROM) & 0xfffffffc) | XCV_REG_RXPROM_FCSE_MASK);	/* E_MMAC_RX_ALLOW_FCS_ERROR */ DBG_vPrintf(TRUE, "J");
+//	XCV_vDevWriteReg32(0, XCV_REG_PRTT, 0);			DBG_vPrintf(TRUE, "K");
 #endif
+// C'est ici que ça se passe -- fin
 
 //	uint8_t u8SctlMask = *(uint8_t*)0x40000d8;					// AFAC
 //	DBG_vPrintf(TRUE, "u8SctlMask = %02x\n", u8SctlMask);
@@ -225,7 +251,17 @@ extern uint32_t restore_state;
 	XCV_vDevWriteReg32(0, XCV_REG_RXPROM, (XCV_u32DevReadReg(0, XCV_REG_RXPROM) & 0xfffffffc) | XCV_REG_RXPROM_FCSE_MASK);	// E_MMAC_RX_ALLOW_FCS_ERROR
 	XCV_vDevWriteReg32(0, XCV_REG_RXCTL, XCV_REG_RXCTL_SS_MASK);							DBG_vPrintf(TRUE, "*");
 
+g_iWSDumpStatus = 1;	// A VOIR
+
+//	vMMAC_EnableInterrupts(vMMAC_Handler);
+//	vMMAC_ConfigureInterruptSources(E_MMAC_INT_TX_COMPLETE | E_MMAC_INT_RX_HEADER /* | E_MMAC_INT_RX_COMPLETE */);
+
 	DBG_vPrintf(TRUE, "\nTRC: starting trace %d\n", u32MMAC_GetRxTime());
+#if defined(USE_MAC_RCV)
+	DBG_vPrintf(TRUE, "MAC mode\n");
+#else
+	DBG_vPrintf(TRUE, "PHY mode\n");
+#endif
 
 #ifdef HEARTBEAT_LED
 	vAHI_DioSetDirection(0x00000000, LED_PIN_BIT);		// Set DIO11 as output (LED)
@@ -246,12 +282,12 @@ extern uint32_t restore_state;
 			u8Channelsave = g_u8Channel;
 		}
 
-		uint32_t u32PHYBufRIdx = g_u32PHYBufRxRIdx;
-		if(g_u32PHYBufRxWIdx!=u32PHYBufRIdx){
+		uint32_t u32ModemBufRIdx = g_u32ModemBufRxRIdx;
+		if(g_u32ModemBufRxWIdx!=u32ModemBufRIdx){
 			if(g_iWSDumpStatus > 0){
-				Dump_Packet(&PHYBufferRx[u32PHYBufRIdx]);
+				Dump_Packet(&ModemBufferRx[u32ModemBufRIdx]);
 			}
-			g_u32PHYBufRxRIdx = (u32PHYBufRIdx + 1) % NB_PHY_BUFFERS_RX;
+			g_u32ModemBufRxRIdx = (u32ModemBufRIdx + 1) % NB_MODEM_BUFFERS_RX;
 		}
 
 #ifdef HEARTBEAT_LED
@@ -274,6 +310,23 @@ extern uint32_t restore_state;
 			DBG_vPrintfTRC_BUTTON_PRESS, ("Pair button\n");
 		}
 #endif
+/*
+		if(g_u32TxBufRxWIdx!=g_u32TxBufRxRIdx){
+			int cnt;
+			static uint8_t nl = 0xAA;
+			nl++;
+			uint8_t * pBuf = &g_u8TxBuf[g_u32TxBufRxRIdx];
+			DBG_vPrintf(TRUE, "--\n");
+			for(cnt=0;cnt<sizeof(g_u8BbcBuf);cnt++){
+				if(!(cnt%16)){DBG_vPrintf(TRUE, "\n");}
+				DBG_vPrintf(TRUE, "%02x ", pBuf[cnt]);
+//				pBuf[cnt] = nl;
+			}
+			DBG_vPrintf(TRUE, "--\n");
+			g_u32TxBufRxRIdx += 284;
+			if(g_u32TxBufRxRIdx>=sizeof(g_u8TxBuf)){g_u32TxBufRxRIdx-=sizeof(g_u8TxBuf);}
+		}
+*/
 
 		if(bUartRxDataAvailable(UART_TO_PC)){
 			char acKey = acGetC();
@@ -281,10 +334,12 @@ extern uint32_t restore_state;
 			if(iCharBufferPtr<sizeof(bCharBuffer)-1){
 				bCharBuffer[iCharBufferPtr++] = acKey;
 			}
+			DBG_vPrintf(TRUE, "acKey=%d(%c)\n", acKey, acKey);
 			if(acKey=='\n'){
 				if(bCharBuffer[0]=='C' && bCharBuffer[1]==':' && isdigit(bCharBuffer[2]) && isdigit(bCharBuffer[3])){
 					int chan = (bCharBuffer[2] - '0')*10 + bCharBuffer[3] - '0';
 					if(chan>=11 && chan<=26){
+						DBG_vPrintf(TRUE, "Set channel %d\n", chan);
 						g_u8Channel = chan;
 						vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
 					}
@@ -325,9 +380,11 @@ extern uint32_t restore_state;
 				}else if(bCharBuffer[0]=='S' && bCharBuffer[1]=='T' && bCharBuffer[2]=='A'){
 					if(bCharBuffer[3]==':' && isdigit(bCharBuffer[4]) && isdigit(bCharBuffer[5])){
 						int chan = (bCharBuffer[4] - '0')*10 + bCharBuffer[5] - '0';
+						DBG_vPrintf(TRUE, "Start chan=%d\n", chan);
 						if(chan>=11 && chan<=26){
 							g_u8Channel = chan;
 							vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
+							DBG_vPrintf(TRUE, "Start chan=%d\n", chan);
 						}
 					}
 					g_iWSDumpStatus = 1;
@@ -355,21 +412,38 @@ PRIVATE void vMMAC_Handler(uint32 u32Param)
 //	E_MMAC_INT_TX_COMPLETE
 //	E_MMAC_INT_RX_HEADER
 //	E_MMAC_INT_RX_COMPLETE
+	vAHI_DioSetOutput(0x00000000, LED_PIN_BIT);		// Set DIO11 (LED)	ON
 	if(u32Param & E_MMAC_INT_RX_HEADER){
-		uint32_t u32CurWIdx = g_u32PHYBufRxWIdx;
+//	if(u32Param & E_MMAC_INT_RX_COMPLETE){
+		uint32_t u32CurWIdx = g_u32ModemBufRxWIdx;
 		uint32_t u32SymbolTime = u32MMAC_GetRxTime();
 		uint32_t u32SymbolNow  = u32MMAC_GetTime();
-		uint32_t u32NextWIdx = (u32CurWIdx+1) % NB_PHY_BUFFERS_RX;
-		if(u32NextWIdx==g_u32PHYBufRxRIdx){
-//			DBG_vPrintf(TRUE, "RX error, buffer overflow!\n");
+		uint32_t u32NextWIdx = (u32CurWIdx+1) % NB_MODEM_BUFFERS_RX;
+		if(u32NextWIdx==g_u32ModemBufRxRIdx){
+			DBG_vPrintf(TRUE, "Radio sniffing error, buffer overflow!\n");
 		}else{
-//			vMMAC_StartPhyReceive(&PHYBufferRx[u32NextWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
-//			XCV_vDevWriteReg32(0, XCV_REG_RXBUFAD, &PHYBufferRx[u32NextWIdx].sPHYFrame);
+#if defined(USE_MAC_RCV)
+			vMMAC_StartMacReceive(&ModemBufferRx[u32NextWIdx].sMACFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_NO_AUTO_ACK | E_MMAC_RX_ALLOW_MALFORMED | E_MMAC_RX_ALLOW_FCS_ERROR | E_MMAC_RX_NO_ADDRESS_MATCH);
+#else
+//			vMMAC_StartPhyReceive(&ModemBufferRx[u32NextWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+//			XCV_vDevWriteReg32(0, XCV_REG_RXBUFAD, &ModemBufferRx[u32NextWIdx].sPHYFrame);
 			XCV_vDevWriteReg32(0, XCV_REG_RXCTL, XCV_REG_RXCTL_SS_MASK);
-			memcpy(&g_u8TxBuf[g_u32TxBufRxWIdx], g_u8BbcBuf, 284);
-			g_u32TxBufRxWIdx += 284;
-			if(g_u32TxBufRxWIdx>=sizeof(g_u8TxBuf)){g_u32TxBufRxWIdx-=sizeof(g_u8TxBuf);}
-			g_u32PHYBufRxWIdx = u32NextWIdx;
+//			int cnt;
+//			static uint8_t nl = 0xAA;
+//			nl++;
+//			DBG_vPrintf(TRUE, "--\n");
+//			for(cnt=0;cnt<sizeof(g_u8BbcBuf);cnt++){
+//				if(!(cnt%16)){DBG_vPrintf(TRUE, "\n");}
+//				DBG_vPrintf(TRUE, "%02x ", g_u8BbcBuf[cnt]);
+//				g_u8BbcBuf[cnt] = nl;
+//			}
+//			DBG_vPrintf(TRUE, "--\n");
+//			memcpy(&g_u8TxBuf[g_u32TxBufRxWIdx], g_u8BbcBuf, 284);
+//			g_u32TxBufRxWIdx += 284;
+//			if(g_u32TxBufRxWIdx>=sizeof(g_u8TxBuf)){g_u32TxBufRxWIdx-=sizeof(g_u8TxBuf);}
+			memcpy(&ModemBufferRx[u32CurWIdx].sPHYFrame, g_u8BbcBuf, g_u8BbcBuf[0]+4);
+#endif
+			g_u32ModemBufRxWIdx = u32NextWIdx;
 		}
 		DBG_vPrintf(TRUE, "dt:%d\n", u32SymbolNow-u32SymbolTime);
 // Worst case for this loop is the number of seconds since the last received frame, which should anyway be bounded
@@ -377,12 +451,17 @@ PRIVATE void vMMAC_Handler(uint32 u32Param)
 			g_u32SymbolCounter += 62500;
 			g_u32SymbolSeconds++;
 		}
-		PHYBufferRx[u32CurWIdx].u32MicroSeconds = cpu_to_le32((u32SymbolTime-g_u32SymbolCounter) * 16);
-		PHYBufferRx[u32CurWIdx].u32Seconds = cpu_to_le32(g_u32SymbolSeconds);
+		ModemBufferRx[u32CurWIdx].u32MicroSeconds = cpu_to_le32((u32SymbolTime-g_u32SymbolCounter) * 16);
+		ModemBufferRx[u32CurWIdx].u32Seconds = cpu_to_le32(g_u32SymbolSeconds);
 	}else{
-//		DBG_vPrintf(TRUE, "vMMAC_Handler(%08x)\n", u32Param);
-		vMMAC_StartPhyReceive(&PHYBufferRx[g_u32PHYBufRxWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+		DBG_vPrintf(TRUE, "vMMAC_Handler(%08x)\n", u32Param);
+#if defined(USE_MAC_RCV)
+		vMMAC_StartMacReceive(&ModemBufferRx[g_u32ModemBufRxWIdx].sMACFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_NO_AUTO_ACK | E_MMAC_RX_ALLOW_MALFORMED | E_MMAC_RX_ALLOW_FCS_ERROR | E_MMAC_RX_NO_ADDRESS_MATCH);
+#else
+		vMMAC_StartPhyReceive(&ModemBufferRx[g_u32ModemBufRxWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
+#endif
 	}
+	vAHI_DioSetOutput(LED_PIN_BIT, 0x00000000);		// Set DIO11 (LED)	OFF
 }
 
 /****************************************************************************/
@@ -518,29 +597,37 @@ PRIVATE void WS_Send_Test_Packet(void)
 	}
 }
 
-PRIVATE void Dump_Packet(struct sTimedPHYFrame * pTimedPHYPacket)
+PRIVATE void Dump_Packet(struct sTimedModemFrame * pTimedModemPacket)
 {
+#if defined(USE_MAC_RCV)
+#else
 	uint32_t u32T0 = u32AHI_TickTimerRead();
-	pTimedPHYPacket->u32IncLen = cpu_to_le32(pTimedPHYPacket->sPHYFrame.u8PayloadLength);
-	uint32_t u32NbToWrite = pTimedPHYPacket->sPHYFrame.u8PayloadLength+4*sizeof(uint32_t);
-	uint32_t u32NbWritten = u32UartWriteBinary(UART_TO_PC, (uint8_t *)pTimedPHYPacket, u32NbToWrite);
+	pTimedModemPacket->sPHYFrame.au8Padding[0] = 0;
+	pTimedModemPacket->sPHYFrame.au8Padding[1] = 0;
+	pTimedModemPacket->sPHYFrame.au8Padding[2] = 0;
+	pTimedModemPacket->u32IncLen = cpu_to_le32(pTimedModemPacket->sPHYFrame.u8PayloadLength);
+	uint32_t u32NbToWrite = pTimedModemPacket->sPHYFrame.u8PayloadLength+4*sizeof(uint32_t);
+	uint32_t u32NbWritten = u32UartWriteBinary(UART_TO_PC, (uint8_t *)pTimedModemPacket, u32NbToWrite);
 	if(u32NbWritten!=u32NbToWrite){
 		DBG_vPrintf(TRUE, "TX buffer full!\n");
 		int cnt;
-		uint8_t * pPayload = (uint8_t *)pTimedPHYPacket;
+		uint8_t * pPayload = (uint8_t *)pTimedModemPacket;
 		for(cnt = u32NbWritten; cnt < u32NbToWrite; cnt++){
 			vUartWrite(UART_TO_PC, pPayload[cnt]);
 		}
 	}
 	u32T0 = u32AHI_TickTimerRead() - u32T0;
-	DBG_vPrintf(TRC_TIME_WRITE_BIN, "Took %d us to dump a %d bytes long packet\n", u32T0, pTimedPHYPacket->sPHYFrame.u8PayloadLength + 4*sizeof(uint32_t));
+	DBG_vPrintf(TRC_TIME_WRITE_BIN, "Took %d us to dump a %d bytes long packet\n", u32T0, pTimedModemPacket->sPHYFrame.u8PayloadLength + 4*sizeof(uint32_t));
+#endif
 }
 
 uint32_t g_u32IEEESeqNumber = 36;
 
-struct sTimedPHYFrame sSendPacket;
+struct sTimedModemFrame sSendPacket;
 PRIVATE void ZB_Send_Beacon_Request(void)
 {
+#if defined(USE_MAC_RCV)
+#else
 	tsPhyFrame * pSendPacket = &sSendPacket.sPHYFrame;
 	memset(&sSendPacket, 0xAA, sizeof(sSendPacket));
 	int len = 0;
@@ -569,6 +656,7 @@ PRIVATE void ZB_Send_Beacon_Request(void)
 	pSendPacket->u8PayloadLength = len;
 	Dump_Packet(&sSendPacket);
 	vMMAC_StartPhyTransmit(pSendPacket, E_MMAC_TX_START_NOW | E_MMAC_TX_NO_CCA);
+#endif
 }
 
 
