@@ -20,6 +20,7 @@
 //#define XIAOMI_SMART_BUTTON
 #define XIAOMI_SMART_DOOR_SENSOR
 //#define HEARTBEAT_LED
+#define ISR_LED
 
 #define UART_TO_PC              E_AHI_UART_0        /* Uart to wireshark      */
 #define UART_FOR_DEBUG          E_AHI_UART_1        /* Uart to debug terminal */
@@ -27,6 +28,7 @@
 #define TRC_BUTTON_PRESS        FALSE
 #define TRC_TIME_WRITE_BIN		FALSE				//TRUE
 #define TRC_PC_COMMANDS			TRUE
+#define TRC_RCV_TO_ISR_TIME		TRUE
 
 #define BAUD_RATE               E_AHI_UART_RATE_115200 /* Baud rate to use   */
 
@@ -99,7 +101,6 @@ const float afFrequencies[] = {
 /****************************************************************************/
 
 PRIVATE void vPutC(uint8 u8Data);
-//PRIVATE void vPutC1(uint8 u8Data);
 PRIVATE char acGetC(void);
 PRIVATE void TickTimer_Cb(uint32_t u32Device, uint32_t u32ItemBitmap);
 
@@ -155,9 +156,6 @@ PUBLIC void AppColdStart(void)
 // Init UART 1 for debug
 	vAHI_UartSetLocation(UART_FOR_DEBUG, TRUE);
 	vAHI_UartTxOnly(UART_FOR_DEBUG, TRUE);
-//	vUartInit(UART_FOR_DEBUG, BAUD_RATE, au8Uart1TxBuffer, sizeof(au8Uart1TxBuffer), NULL, 0);
-//	vInitPrintf((void*)vPutC1);	
-//	vPrintf("Cleartext log start\n");
 	DBG_vUartInit(UART_FOR_DEBUG, DBG_E_UART_BAUD_RATE_115200);
 	vAHI_UartSetBaudDivisor(UART_FOR_DEBUG, 1);
 	vAHI_UartSetClocksPerBit(UART_FOR_DEBUG, 15);
@@ -203,7 +201,7 @@ extern uint32_t restore_state;
 	XCV_vDevWriteReg32(0, XCV_REG_TXCTL, 0);
 	XCV_vDevWriteReg32(0, XCV_REG_RXBUFAD, g_u8BbcBuf);
 	XCV_vDevWriteReg32(0, XCV_REG_RXPROM, (XCV_u32DevReadReg(0, XCV_REG_RXPROM) & 0xfffffffc) | XCV_REG_RXPROM_FCSE_MASK);	// E_MMAC_RX_ALLOW_FCS_ERROR
-	XCV_vDevWriteReg32(0, XCV_REG_RXCTL, XCV_REG_RXCTL_SS_MASK);							DBG_vPrintf(TRUE, "*");
+	XCV_vDevWriteReg32(0, XCV_REG_RXCTL, XCV_REG_RXCTL_SS_MASK);
 
 g_iWSDumpStatus = 1;	// A VOIR
 
@@ -214,9 +212,9 @@ g_iWSDumpStatus = 1;	// A VOIR
 	DBG_vPrintf(TRUE, "PHY mode\n");
 #endif
 
-#ifdef HEARTBEAT_LED
+#if defined(HEARTBEAT_LED) || defined(ISR_LED)
 	vAHI_DioSetDirection(0x00000000, LED_PIN_BIT);		// Set DIO11 as output (LED)
-#endif	//def HEARTBEAT_LED
+#endif	//defined(HEARTBEAT_LED) || defined(ISR_LED)
 
 #ifdef XIAOMI_SMART_BUTTON
 	vAHI_DioSetPullup(~MAIN_PIN_BIT, MAIN_PIN_BIT);  /* turn all pullups on except for DIO16 which is big button input      */
@@ -319,7 +317,7 @@ g_iWSDumpStatus = 1;	// A VOIR
 						if(chan>=11 && chan<=26){
 							g_u8Channel = chan;
 							vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
-							DBG_vPrintf(TRUE, "Start chan=%d\n", chan);
+							DBG_vPrintf(TRC_PC_COMMANDS, "Start chan=%d\n", chan);
 						}else{
 							DBG_vPrintf(TRC_PC_COMMANDS, "Wrong chan=%d number (should be between 11 and 26 inclusive)\n", chan);
 						}
@@ -351,7 +349,9 @@ PRIVATE void vMMAC_Handler(uint32 u32Param)
 //	E_MMAC_INT_TX_COMPLETE
 //	E_MMAC_INT_RX_HEADER
 //	E_MMAC_INT_RX_COMPLETE
+#if defined(ISR_LED)
 	vAHI_DioSetOutput(0x00000000, LED_PIN_BIT);		// Set DIO11 (LED)	ON
+#endif
 	if(u32Param & E_MMAC_INT_RX_HEADER){
 //	if(u32Param & E_MMAC_INT_RX_COMPLETE){
 		uint32_t u32CurWIdx = g_u32ModemBufRxWIdx;
@@ -371,7 +371,7 @@ PRIVATE void vMMAC_Handler(uint32 u32Param)
 #endif
 			g_u32ModemBufRxWIdx = u32NextWIdx;
 		}
-		DBG_vPrintf(TRUE, "dt:%d\n", u32SymbolNow-u32SymbolTime);
+		DBG_vPrintf(TRC_RCV_TO_ISR_TIME, "dt:%d\n", u32SymbolNow-u32SymbolTime);
 // Worst case for this loop is the number of seconds since the last received frame, which should anyway be bounded
 		while(u32SymbolTime-g_u32SymbolCounter>62500){
 			g_u32SymbolCounter += 62500;
@@ -387,7 +387,9 @@ PRIVATE void vMMAC_Handler(uint32 u32Param)
 		vMMAC_StartPhyReceive(&ModemBufferRx[g_u32ModemBufRxWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
 #endif
 	}
+#if defined(ISR_LED)
 	vAHI_DioSetOutput(LED_PIN_BIT, 0x00000000);		// Set DIO11 (LED)	OFF
+#endif
 }
 
 /****************************************************************************/
@@ -398,11 +400,6 @@ PRIVATE void vPutC(uint8 u8Data)
 {
 	vUartWrite(UART_TO_PC, u8Data);
 }
-
-//PRIVATE void vPutC1(uint8 u8Data)
-//{
-//	vUartWrite(UART_FOR_DEBUG, u8Data);
-//}
 
 PRIVATE char acGetC(void)
 {
