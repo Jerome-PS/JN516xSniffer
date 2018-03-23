@@ -117,8 +117,6 @@ struct sTimedModemFrame ModemBufferRx[NB_MODEM_BUFFERS_RX];
 volatile uint32_t g_u32ModemBufRxRIdx = 0;
 volatile uint32_t g_u32ModemBufRxWIdx = 0;
 
-uint8_t g_u8BbcBuf[284];
-
 /****************************************************************************/
 /***        Exported Functions                                            ***/
 /****************************************************************************/
@@ -161,12 +159,12 @@ PUBLIC void AppColdStart(void)
 	vAHI_UartSetClocksPerBit(UART_FOR_DEBUG, 15);
 	DBG_vPrintf(TRUE, "Cleartext log start\n");
 
-extern uint32_t restore_state;
-	DBG_vPrintf(TRUE, "&restore_state = %08x\n", &restore_state);
+//extern uint32_t restore_state;
+//	DBG_vPrintf(TRUE, "&restore_state = %08x\n", &restore_state);
 //extern uint8_t u8SctlMask;
 //	DBG_vPrintf(TRUE, "&u8SctlMask = %08x\n", &u8SctlMask);
 //extern uint32_t isr_handlers;
-	DBG_vPrintf(TRUE, "&isr_handlers = %08x\n", &isr_handlers);
+//	DBG_vPrintf(TRUE, "&isr_handlers = %08x\n", &isr_handlers);
 /*
 	DBG_vPrintf(TRUE, "Dump Bootflash");
 	uint8_t * pBF = 0x00000000;
@@ -179,15 +177,9 @@ extern uint32_t restore_state;
 // Lower UART ISR priority
 	vAHI_InterruptSetPriority(MICRO_ISR_MASK_UART0 | MICRO_ISR_MASK_UART1, 1);		// 0 is ISR off, 1 is lowest priority, 15 is highest priority
 
-#define XCV_REG_PHY_CTRL		(XCV_PHY_OFFSET)
-#define XCV_BASE				(0)
-
-	memset(g_u8BbcBuf, 0xAA, sizeof(g_u8BbcBuf));			// TODO: Remettre le transfert dans des buffers différents
-
 	vMMAC_Enable();
 	vMMAC_EnableInterrupts(vMMAC_Handler);
-	vMMAC_ConfigureInterruptSources(E_MMAC_INT_TX_COMPLETE | E_MMAC_INT_RX_HEADER /* | E_MMAC_INT_RX_COMPLETE */);
-//	vMMAC_ConfigureInterruptSources(E_MMAC_INT_TX_COMPLETE /* | E_MMAC_INT_RX_HEADER */ | E_MMAC_INT_RX_COMPLETE);
+	vMMAC_ConfigureInterruptSources(E_MMAC_INT_TX_COMPLETE | E_MMAC_INT_RX_HEADER);
 	vMMAC_ConfigureRadio();
 	vMMAC_SetChannel(g_u8Channel);
 #if defined(USE_MAC_RCV)
@@ -199,11 +191,9 @@ extern uint32_t restore_state;
 	XCV_vDevWriteReg32(0, XCV_TI_OFFSET+32, 0);					// <<< OK, ça a l'air d'être celui-là
 	XCV_vDevWriteReg32(0, XCV_REG_SCTL, 0x20);
 	XCV_vDevWriteReg32(0, XCV_REG_TXCTL, 0);
-	XCV_vDevWriteReg32(0, XCV_REG_RXBUFAD, g_u8BbcBuf);
+	XCV_vDevWriteReg32(0, XCV_REG_RXBUFAD, &ModemBufferRx[0].sPHYFrame);
 	XCV_vDevWriteReg32(0, XCV_REG_RXPROM, (XCV_u32DevReadReg(0, XCV_REG_RXPROM) & 0xfffffffc) | XCV_REG_RXPROM_FCSE_MASK);	// E_MMAC_RX_ALLOW_FCS_ERROR
 	XCV_vDevWriteReg32(0, XCV_REG_RXCTL, XCV_REG_RXCTL_SS_MASK);
-
-g_iWSDumpStatus = 1;	// A VOIR
 
 	DBG_vPrintf(TRUE, "\nTRC: starting trace %d\n", u32MMAC_GetRxTime());
 #if defined(USE_MAC_RCV)
@@ -365,9 +355,8 @@ PRIVATE void vMMAC_Handler(uint32 u32Param)
 			vMMAC_StartMacReceive(&ModemBufferRx[u32NextWIdx].sMACFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_NO_AUTO_ACK | E_MMAC_RX_ALLOW_MALFORMED | E_MMAC_RX_ALLOW_FCS_ERROR | E_MMAC_RX_NO_ADDRESS_MATCH);
 #else
 //			vMMAC_StartPhyReceive(&ModemBufferRx[u32NextWIdx].sPHYFrame, E_MMAC_RX_START_NOW | E_MMAC_RX_ALLOW_FCS_ERROR);
-//			XCV_vDevWriteReg32(0, XCV_REG_RXBUFAD, &ModemBufferRx[u32NextWIdx].sPHYFrame);
+			XCV_vDevWriteReg32(0, XCV_REG_RXBUFAD, &ModemBufferRx[u32NextWIdx].sPHYFrame);
 			XCV_vDevWriteReg32(0, XCV_REG_RXCTL, XCV_REG_RXCTL_SS_MASK);
-			memcpy(&ModemBufferRx[u32CurWIdx].sPHYFrame, g_u8BbcBuf, g_u8BbcBuf[0]+4);
 #endif
 			g_u32ModemBufRxWIdx = u32NextWIdx;
 		}
