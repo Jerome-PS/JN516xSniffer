@@ -34,10 +34,14 @@
 
 #include <jendefs.h>
 #include "Queue.h"
+#include "utils.h"
+#include <string.h>
 
 #ifdef DEBUG_QUEUE
  #include "Printf.h"
 #endif
+
+#define COPY_UPCOUNT_BYTE
 
 /****************************************************************************/
 /***        Macro Definitions                                             ***/
@@ -140,6 +144,83 @@ PUBLIC bool bQueue_Write(tsQueue *psQueue, uint8 u8Item)
 	psQueue->u32WritePtr = u32NewWritePtr;				/* Write new pointer */
 
 	return(TRUE);
+}
+
+/****************************************************************************
+ *
+ * NAME:       bPPP_QueueWriteBlock
+ *
+ * DESCRIPTION: Write a block of data to the queue
+ *
+ * PARAMETERS: Name     RW  Usage
+ *
+ * RETURNS:
+ * Number of bytes pushed into the FIFO.
+ *
+ ****************************************************************************/
+PUBLIC uint32 bQueue_WriteBlock(tsQueue *psQueue, const uint8 * pu8Item, uint32 u32Len)
+{
+	uint32_t u32AlreadyCopied = 0;
+	uint32_t u32LeftToCopy = u32Len;
+
+	// Check how much contiguous space is available
+	uint32_t u32ReadPtr = psQueue->u32ReadPtr;
+	uint32_t u32WritPtr = psQueue->u32WritePtr;
+	uint32_t u32Avail   = 0;
+	if(u32ReadPtr > u32WritPtr){				/* Write up to read pointer (-1) */
+		u32Avail = u32ReadPtr - 1 - u32WritPtr;
+	}else{							/* Write up to the end, EXCEPT if ReadPtr = 0 ... */
+		u32Avail = psQueue->u32Length - u32WritPtr;
+		if(u32ReadPtr == 0 && u32Avail != 0){		/* Read pointer is at 0, we are not allowed to write up to the end */
+			u32Avail -= 1;
+		}
+	}
+//    vPrintf("u32ReadPtr=%d, u32WritPtr=%d, u32Avail=%d, u32LeftToCopy=%d\n", u32ReadPtr, u32WritPtr, u32Avail, u32LeftToCopy);
+	uint32_t u32CanCopy = min(u32Avail, u32LeftToCopy);
+	int cnt;(void)cnt;
+#if defined(COPY_MEMCPY)
+	memcpy(&psQueue->pau8Buffer[u32WritPtr], &pu8Item[0], u32CanCopy);
+#elif defined(COPY_UPCOUNT_BYTE)
+	for(cnt=0;cnt<u32CanCopy;cnt++){
+		psQueue->pau8Buffer[u32WritPtr+cnt] = pu8Item[cnt];
+	}
+#elif defined(COPY_DOWNCOUNT_BYTE)
+	for(cnt=u32CanCopy-1;cnt>=0;cnt--){
+		psQueue->pau8Buffer[u32WritPtr+cnt] = pu8Item[cnt];
+	}
+#elif defined(COPY_UPCOUNT_BYTE_POINTER)
+	uint8_t * pu8Src = pu8Item;
+	uint8_t * pu8Dst = &psQueue->pau8Buffer[u32WritPtr];
+	for(cnt=0;cnt<u32CanCopy;cnt++){
+		*pu8Dst++ = *pu8Src++;
+	}
+#elif defined(COPY_DOWNCOUNT_BYTE_POINTER)
+	uint8_t * pu8Src = pu8Item;
+	uint8_t * pu8Dst = &psQueue->pau8Buffer[u32WritPtr];
+	for(cnt=u32CanCopy-1;cnt>=0;cnt--){
+		*pu8Dst++ = *pu8Src++;
+	}
+#else
+#error("No copy method specified!");
+#endif
+	u32LeftToCopy -= u32CanCopy;
+	u32WritPtr += u32CanCopy;
+	u32AlreadyCopied += u32CanCopy;
+//    vPrintf("u32CanCopy=%d, u32LeftToCopy=%d, u32WritPtr=%d, u32LeftToCopy=%d\n", u32CanCopy, u32LeftToCopy, u32WritPtr, u32LeftToCopy);
+	if(u32WritPtr==psQueue->u32Length){u32WritPtr=0;}
+	if(u32LeftToCopy && u32WritPtr==0){		// Not written everything yet, there is space only if we folded the write pointer
+		u32Avail = u32ReadPtr - 1 - u32WritPtr;
+		u32CanCopy = min(u32Avail, u32LeftToCopy);
+		memcpy(&psQueue->pau8Buffer[u32WritPtr], &pu8Item[u32AlreadyCopied], u32CanCopy);
+		u32LeftToCopy -= u32CanCopy;
+		u32WritPtr += u32CanCopy;
+		u32AlreadyCopied += u32CanCopy;
+	}
+
+	// Synchronize the pointer with the Queue
+	psQueue->u32WritePtr = u32WritPtr;
+
+	return u32AlreadyCopied;
 }
 
 /****************************************************************************

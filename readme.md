@@ -141,3 +141,36 @@ If you get stuck with remaining data in the FIFO that repeatedly crashes wiresha
 rm -f /tmp/sharkfifo && mkfifo /tmp/sharkfifo
 ```
 
+# Gory details
+Original serial queuing functions took 43125us for 26 bytes (166us/byte) and 4923 us for 31 bytes (159us/byte) with a 115200 baud/s UART
+and 10272us for 26 bytes (395us/byte) and 12860 for 31 bytes (415us/byte) with a 1MBaud/s UART!!! What the hell?
+memcpy algo takes 636 us for 26 bytes (24us/byte) and 848 for 43 bytes (20us/byte).
+The longer runtime/byte might come from the fact that the likeliness of having time stolen by an ISR is higher if you take more time. I might do some additional tests with disabled IT to try and get more consistent results...
+
+## Packets timestamps
+At 2.4GHz, Zigbee uses a 62500 Hz symbol clock. These symbols encode 4 bits each, providing an on the air bitrate of 250Kbits/s.
+
+Packets are timed with this clock, and have therefore a 16µs resolution.
+
+## Timings
+Send ACK between 
+macSIFSPeriod = 12 symbols >> 192µs
+and 
+macAckWaitDuration = macSIFSPeriod + phySHRDuration + ceiling(7 × phySymbolsPerOctet) = 12 symbols + 
+
+bits are 250kHz (4µs), symbols are 62.5kHz (16-ary, so 4 bits/symbol)
+192µs < Tack < 512µs
+
+Inter Frame Spacing
+If lengthMPDU ≤ aMaxSIFSFrameSize (18 octets)
+then,
+symbolsIFS ≥ aMinSIFSPeriod = 12 symbols (192µs)
+else,
+symbolsIFS ≥ aMinLIFSPeriod = 40 symbols (640µs)
+
+![MPDU](https://github.com/Jerome-PS/JN516xSniffer/blob/master/doc/MPDU.png)
+
+# TODO
+- Check IT priority, so UART does not prevent packet management at the radio level.
+- Fill Tx FIFO before starting Tx ISR to limit the number of ISR.
+

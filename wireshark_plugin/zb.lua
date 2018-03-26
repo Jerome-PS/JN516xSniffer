@@ -1,5 +1,46 @@
 do
 
+	------------------------------------------------------------------------
+	-- based on:
+	-- "Dir (objects introspection like Python's dir) - Lua"
+	-- http://snipplr.com/view/13085/
+	-- (added iteration through getmetatable of userdata, and recursive call)
+	-- make a global function here (in case it's needed in requires)
+	--- Returns string representation of object obj
+	-- @return String representation of obj
+	------------------------------------------------------------------------
+	function dir(obj,level)
+	  local s,t = '', type(obj)
+
+	  level = level or ' '
+
+	  if (t=='nil') or (t=='boolean') or (t=='number') or (t=='string') then
+		s = tostring(obj)
+		if t=='string' then
+		  s = '"' .. s .. '"'
+		end
+	  elseif t=='function' then s='function'
+	  elseif t=='userdata' then
+		s='userdata'
+		for n,v in pairs(getmetatable(obj)) do  s = s .. " (" .. n .. "," .. dir(v) .. ")" end
+	  elseif t=='thread' then s='thread'
+	  elseif t=='table' then
+		s = '{'
+		for k,v in pairs(obj) do
+		  local k_str = tostring(k)
+		  if type(k)=='string' then
+		    k_str = '["' .. k_str .. '"]'
+		  end
+		  s = s .. k_str .. ' = ' .. dir(v,level .. level) .. ', '
+		end
+		if s:len()>1 then
+			s = string.sub(s, 1, -3)
+		end
+		s = s .. '}'
+	  end
+	  return s
+	end
+
 	local dprint = function(...)
 		print(table.concat({"Lua:", ...}," "))
 		local log = assert(io.open("lua.log", "a"))
@@ -73,8 +114,18 @@ do
 	local f_chanfrq1  = ProtoField.float("zbparams1.chanfrq", "Frequency")
 	local f_channum2  = ProtoField.uint8("zbparams2.channum", "Channel", base.DEC)
 	local f_chanfrq2  = ProtoField.float("zbparams2.chanfrq", "Frequency")
+	local f_ackref1   = ProtoField.framenum("zbparams1.acknum", "Acknowledge frame", base.NONE, frametype.ACK)
+	local f_duration1 = ProtoField.relative_time("zbparams1.duration", "Duration of the frame", "Time it took to transmit the frame on the air, from the preamble to ...")
+	local f_acktime   = ProtoField.relative_time("zbparams1.acktime", "Time since acked frame", "Time from the end of the AR frame to the start of the ack frame")
+
+	local f_wpan             = Field.new("wpan")
+	local f_wpan_fcf         = Field.new("wpan.fcf")
+	local f_wpan_seq_no      = Field.new("wpan.seq_no")
+	local f_frame_time_epoch = Field.new("frame.time_epoch")
+	local f_frame_number     = Field.new("frame.number")
+	local f_frame_len        = Field.new("frame.len")
 	
-	p_zbparams104.fields = { f_channum1, f_chanfrq1 }
+	p_zbparams104.fields = { f_channum1, f_chanfrq1, f_ackref1, f_duration1, f_acktime }
 	p_zbparams127.fields = { f_channum2, f_chanfrq2 }
 
 	local data_dis = Dissector.get("data")
@@ -92,24 +143,71 @@ do
 			subtree:add(f_channum1,buf:range(3,1))
 			subtree:add(f_chanfrq1,buf:range(4,4)):set_text(string.format("Frequency: %.3f GHz", freq/1000000))
 --			subtree:add(f_channum1,chan)
---			subtree:add(f_chanfrq1,freq/1000000):append_text("GHz")
+--			subtree:add(f_chanfrq1,freq/1000000):append_text(" GHz")
 		elseif(ftyp==1)then
-			pkt.cols.info = "Syntax error, could not interprete command."
+			pkt.cols.info = "Syntax error, could not interpret command."
 		end
 	end
 
 -- Dissection routine
     function p_zbparams104.dissector(buf,pkt,root)
---		dprint("[0:2]=" .. buf(0,2):uint())
+----		dprint("[0:2]=" .. buf(0,2):uint())
 		set_color_filter_slot(4, "zbee_zcl")				-- Purple 2
 		set_color_filter_slot(7, "zbee_nwk.cmd.id == 0x08")		-- Green  3 - Link Status
 		if (buf:len() < 2) or (buf(0,2):uint() ~= 0x0700) then
 			orig104:call(buf,pkt,root)
+			local fcf  = f_wpan_fcf().value
+			local fseq = f_wpan_seq_no().value
+			local flen = f_frame_len().value
+			local fnum = f_frame_number().value
+--			local fnum = pkt.number
+			local ftime = f_frame_time_epoch().value
+			local wpan = f_wpan()
+			if not packets[fnum] then
+				packets[fnum] = {fseq, fcf, fnum, ftime}
+--				packets[fnum] = {fseq, fcf, fnum}
+			end
+----			dprint(dir(fcf))
+----			dprint("fcf="..tostring(fcf))
+			if(fcf==0x0002)then
+				local idx = fnum - 1
+				local found = false
+				dprint("===")
+				while idx > 0 do
+--					dprint(table.concat(packets[idx]," "))
+--					dprint(packets[idx][1])
+					if((packets[idx][1]==fseq))then
+						found = true
+						break
+					end
+					idx = idx - 1
+				end
+				dprint("===")
+				if(found) then
+					local fack = root:add(f_ackref1,idx):set_generated()
+					fack:add(f_acktime, ftime-packets[idx][4]):set_generated()
+				else
+					root:add("Corresponding frame not found"):set_generated()
+				end
+----				dprint("fcf="..fcf)
+			end
+--			wpan:add(f_duration1, NSTime(flen/4./62500., flen/4./62500.*10^9)):set_generated()
+			root:add(f_duration1, NSTime(flen/4./62500., flen/4./62500.*10^9)):set_generated()
 		else
 			local pktlen = buf:reported_length_remaining()
 			local subtree = root:add(p_zbparams104,buf:range(0,pktlen))
 			do_dissect(buf,pkt,subtree)
 		end
+--		dprint(dir(pkt))
+--		dprint(tostring(pkt))
+--		dprint(tostring(pkt.cols))
+--		dprint(dir(pkt.cols))
+--		dprint(dir(pkt.cols[0]))
+--		dprint(pkt.cols:len())
+--		dprint(pkt["in_error_pkt"])
+--		dprint(pkt.dl_dst)
+--		dprint(pkt.dl_dst())
+--		"] = function, ["delta_ts"] = function, ["visited"] = function, ["len"] = function, ["net_src"] = function, ["in_error_pkt"] = function, ["match_uint"] = function, ["circuit_id"] = function, ["match_string"] = function, ["delta_dis_ts"] = function, ["fragmented"] = function, ["can_desegment"] = function, ["number"] = function, ["port_type"] = function, ["desegment_len"] = function, ["columns"] = function, ["dst"] = function, ["desegment_offset"] = function, ["hi"] = function, ["rel_ts"] = function, ["dl_src"] = function, ["cols"] = function, ["curr_proto"] = function, ["match"] = function, ["dst_port"] = function, ["caplen"] = function, ["src_port"] = function, ["net_dst"] = function, ["abs_ts"] = function, ["lo"] = function, ["src"] = function, ["private"] = function}) (__tostring,function) (__gc,function) (__setters,{["dl_dst"] = function, ["conversation"] = function, ["src_port"] = function, ["net_src"] = function, ["circuit_id"] = function, ["dst_port"] = function, ["dst"] = function, ["desegment_offset"] = function, ["net_dst"] = function, ["desegment_len"] = function, ["can_desegment"] = function, ["src"] = function, ["dl_src"]
     end
 
     function p_zbparams127.dissector(buf,pkt,root)
@@ -123,6 +221,7 @@ do
 			local subtree = root:add(p_zbparams127,buf:range(0, pktlen))
 			do_dissect(buf,pkt,subtree)
 		end
+		dprint(dir(pkt))
     end
 
 	local channel_pref_enum = {
@@ -165,6 +264,7 @@ do
 
 -- Initialization routine
 	function p_zbparams104.init()
+		packets = {}
 	end
 	function p_zbparams127.init()
 	end

@@ -114,15 +114,6 @@ def main(argv):
 					print("ABORTING!")
 					exit(-1)
 
-	if(bIsWindows):
-		pipeRxName = r'\\.\pipe\wiresharkRx'
-		pipeTxName = r'\\.\pipe\wiresharkTx'
-	else:
-		pipeRxName = '/tmp/wiresharkRx'
-		pipeTxName = '/tmp/wiresharkTx'
-	pipeRx = PyFIFO(pipeRxName, "w")
-	pipeTx = PyFIFO(pipeTxName, "r")
-
 	import subprocess
 	import time
 	import threading
@@ -143,6 +134,15 @@ def main(argv):
 	ser.rts = 0	# nRESET when wired
 	ser.dtr = 0	# nPROG  when wired
 	print("Using serial port '%s' at %d Baud" % (ser.name, ser.baudrate))         # check which port was really used
+
+	if(bIsWindows):
+		pipeRxName = r'\\.\pipe\wiresharkRx'
+		pipeTxName = r'\\.\pipe\wiresharkTx'
+	else:
+		pipeRxName = '/tmp/wiresharkRx_' + os.path.basename(ser.name)
+		pipeTxName = '/tmp/wiresharkTx_' + os.path.basename(ser.name)
+	pipeRx = PyFIFO(pipeRxName, "w")
+	pipeTx = PyFIFO(pipeTxName, "r")
 
 	#TODO: check for wireshark in the registry
 	#open Wireshark, configure pipe interface and start capture (not mandatory, you can also do this manually)

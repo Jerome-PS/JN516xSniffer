@@ -1,3 +1,6 @@
+# Leave at the top
+THIS_MAKEFILE := $(lastword $(MAKEFILE_LIST))
+
 # Application target name
 TARGET = JN516xSniffer
 
@@ -11,7 +14,6 @@ JENNIC_SDK ?= JN-SW-4163
 # Select the network stack (e.g. MAC, ZBPRO)
 
 JENNIC_STACK ?= None
-###TODO: Check this
 
 ##############################################################################
 # Debug options define DEBUG for HW debug
@@ -22,7 +24,7 @@ DEBUG_PORT ?= UART1
 
 ##############################################################################
 # Define TRACE to use with DBG module
-#TRACE ?=1
+TRACE ?=1
 
 ##############################################################################
 # Path definitions
@@ -43,11 +45,12 @@ APPSRC += main.c coordinator.c crc-ccitt.c UartBuffered.c Queue.c Printf.c
 
 # Specify additional Component libraries
 APPLIBS += MMAC
+APPLIBS += DBG
 
 ##############################################################################
 # Standard Application header search paths
 
-INCFLAGS += -I$(COMPONENTS_BASE_DIR)/ProductionTestApi/Include
+INCFLAGS += -I$(COMPONENTS_BASE_DIR)/MicroSpecific/Include
 INCFLAGS += -Iinc
 
 ##############################################################################
@@ -88,42 +91,40 @@ LDLIBS := $(addsuffix _$(JENNIC_CHIP_FAMILY),$(APPLIBS)) $(LDLIBS)
 # Path to directories containing application source 
 #vpath % $(APP_SRC_DIR)
 
-
-all: $(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).bin
+all: $(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).bin $(THIS_MAKEFILE)
 
 -include $(APPDEPS)
 $(OBJ_DIR)/%.d:
 	rm -f $(OBJ_DIR)/$*.o
 
-
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.S $(OBJ_DIR)/.dirok
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.S $(OBJ_DIR)/.dirok $(THIS_MAKEFILE)
 	$(info Assembling $< ...)
 	$(CC) -c -o $@ $(CFLAGS) $(INCFLAGS) $< -MMD -MF $(OBJ_DIR)/$*.d -MP
 	@echo
 
-$(OBJ_DIR)/%.i: $(SRC_DIR)/%.c $(OBJ_DIR)/.dirok
+$(OBJ_DIR)/%.i: $(SRC_DIR)/%.c $(OBJ_DIR)/.dirok $(THIS_MAKEFILE)
 	$(info Compiling $< ...)
 	$(CC) -E -o $@ $(CFLAGS) $(INCFLAGS) $<
 	@echo
 
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(OBJ_DIR)/.dirok
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(OBJ_DIR)/.dirok $(THIS_MAKEFILE)
 	$(info Compiling $< ...)
 	$(CC) -c -o $@ $(CFLAGS) $(INCFLAGS) $< -MMD -MF $(OBJ_DIR)/$*.d -MP
 	@echo
 
-$(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).elf: $(APPOBJS) $(addsuffix _$(JENNIC_CHIP_FAMILY).a,$(addprefix $(COMPONENTS_BASE_DIR)/Library/lib,$(APPLIBS))) 
+$(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).elf: $(APPOBJS) $(addsuffix _$(JENNIC_CHIP_FAMILY).a,$(addprefix $(COMPONENTS_BASE_DIR)/Library/lib,$(APPLIBS))) $(THIS_MAKEFILE)
 	$(info Linking $@ ...)
 	$(CC) -Wl,--gc-sections -Wl,-u_AppColdStart -Wl,-u_AppWarmStart $(LDFLAGS) -T$(LINKCMD) -o $@ $(APPOBJS) -Wl,--start-group  $(addprefix -l,$(LDLIBS)) -Wl,--end-group -Wl,-Map,$(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).map 
 	${SIZE} $@
 	@echo
 
-$(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).bin: $(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).elf 
+$(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).bin: $(OBJ_DIR)/$(TARGET)_$(JENNIC_CHIP)$(BIN_SUFFIX).elf $(THIS_MAKEFILE)
 	$(info Generating binary ...)
 	$(OBJCOPY) -S -O binary $< $@
 
-$(OBJ_DIR)/.dirok:
+$(OBJ_DIR)/.dirok: $(THIS_MAKEFILE)
 	echo $@
-	mkdir $(dir $@)
+	mkdir -p $(dir $@)
 	touch $@
 
 #########################################################################
