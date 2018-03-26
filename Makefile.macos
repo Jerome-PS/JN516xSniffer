@@ -63,11 +63,11 @@ include $(SDK_BASE_DIR)/Stack/Common/Build/config.mk
 
 ###TODO: change this
 #INCFLAGS += -I$(TOOL_COMMON_BASE_DIR)/$(TOOLCHAIN_PATH)/include
-INCFLAGS += -I/usr/local/Cellar/gcc/7.2.0_1/lib/gcc/ba-elf/4.7.4/include/
+INCFLAGS += -I/usr/local/Cellar/gcc/7.3.0/lib/gcc/ba-elf/4.7.4/include
 INCFLAGS += -I/usr/local/ba-elf/include
-INCFLAGS += -I/usr/local/ba-elf/include/tr1
-INCFLAGS += -I/usr/local/ba-elf/include/ba-elf
-LDFLAGS += -L/usr/local/ba-elf/lib -L/usr/local/Cellar/gcc/7.2.0_1/lib/gcc/ba-elf/4.7.4/ -fno-lto
+INCFLAGS += -I$(SDK_BASE_DIR)/Components/Xcv/Include
+LDFLAGS += -L/usr/local/Cellar/gcc/7.3.0/lib/gcc/ba-elf/4.7.4/mcpu_jn51xx_sizeopt/
+LDFLAGS += -L/usr/local/ba-elf/lib -fno-lto
 CFLAGS  += -DDO_COORD_JOB
 
 ##############################################################################

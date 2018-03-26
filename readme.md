@@ -35,6 +35,8 @@ Running `python Sniff.py -h` will give you a list of detected serial ports.
 	- [Xiaomi smart button UART1](#Xiaomi-smart-button-UART1)
 - [Using the GUI to set the preferences](#Using-the-GUI-to-set-the-preferences)
 - [Troubleshooting](#Troubleshooting)
+- [To do list](#To-do-list)
+- [Gory details](# Gory-details)
 
 # Compiling the sniffer
 You will need the NXP JN-SW-4163 SDK in order to compile the source code.
@@ -136,10 +138,21 @@ You can also pass the dissector parameters through environment varaibles:
 ```
 env ZBL_CHANNEL=12 ZBL_COMPORT=/dev/ttyUSB1 wireshark -X lua_script:zb.lua -k -i /tmp/sharkfifo &
 ```
+
+## FIFO troubles (obsolete)
+
 If you get stuck with remaining data in the FIFO that repeatedly crashes wireshark, you can destroy the pipe and re-create it:
 ```
 rm -f /tmp/sharkfifo && mkfifo /tmp/sharkfifo
 ```
+This should not be necessary any more, as the FIFOs are destroyed when leaving the Sniff.py script.
+
+## Python version
+The Sniff.py script has been developped using Python3.6, so this, or a more recent, version of Python3 is recommended. It has not been extensively tested using Python2.
+
+# To do list
+- Add LQI information to the packet
+- Add frame duration computation as well as inter frame gap (wireshark)
 
 # Gory details
 Original serial queuing functions took 43125us for 26 bytes (166us/byte) and 4923 us for 31 bytes (159us/byte) with a 115200 baud/s UART

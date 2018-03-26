@@ -1,6 +1,7 @@
 #include <jendefs.h>
 #include <AppHardwareApi.h>
 #include <MMAC.h>
+#include <xcv_pub.h>
 #include <MicroSpecific.h>
 #include "dbg.h"
 #include "dbg_uart.h"
@@ -41,6 +42,8 @@
 
 #define TRC_BUTTON_PRESS        FALSE
 #define TRC_TIME_WRITE_BIN		TRUE
+#define TRC_PC_COMMANDS			TRUE
+#define TRC_RCV_TO_ISR_TIME		TRUE
 
 #define BAUD_RATE               E_AHI_UART_RATE_115200 /* Baud rate to use   */
 
@@ -106,7 +109,6 @@ const float afFrequencies[] = {
 /****************************************************************************/
 
 PRIVATE void vPutC(uint8 u8Data);
-//PRIVATE void vPutC1(uint8 u8Data);
 PRIVATE char acGetC(void);
 PRIVATE void TickTimer_Cb(uint32_t u32Device, uint32_t u32ItemBitmap);
 PRIVATE void SysCtrl_Cb(uint32_t u32Device, uint32_t u32ItemBitmap);
@@ -168,16 +170,17 @@ PUBLIC void AppColdStart(void)
 // Init UART 1 for debug
 	vAHI_UartSetLocation(UART_FOR_DEBUG, TRUE);
 	vAHI_UartTxOnly(UART_FOR_DEBUG, TRUE);
-//	vUartInit(UART_FOR_DEBUG, BAUD_RATE, au8Uart1TxBuffer, sizeof(au8Uart1TxBuffer), NULL, 0);
-//	vInitPrintf((void*)vPutC1);	
-//	vPrintf("Cleartext log start\n");
+	DBG_vUartInit(UART_FOR_DEBUG, DBG_E_UART_BAUD_RATE_115200);
+	vAHI_UartSetBaudDivisor(UART_FOR_DEBUG, 1);
+	vAHI_UartSetClocksPerBit(UART_FOR_DEBUG, 15);
+	DBG_vPrintf(TRUE, "Cleartext log start\n");
 
 // Lower UART ISR priority
 	vAHI_InterruptSetPriority(MICRO_ISR_MASK_UART0 | MICRO_ISR_MASK_UART1, 1);		// 0 is ISR off, 1 is lowest priority, 15 is highest priority
 
 	vMMAC_Enable();
 	vMMAC_EnableInterrupts(vMMAC_Handler);
-	vMMAC_ConfigureInterruptSources(E_MMAC_INT_TX_COMPLETE | E_MMAC_INT_RX_HEADER /* | E_MMAC_INT_RX_COMPLETE */);
+	vMMAC_ConfigureInterruptSources(E_MMAC_INT_TX_COMPLETE | E_MMAC_INT_RX_HEADER);
 	vMMAC_ConfigureRadio();
 	vMMAC_SetChannel(g_u8Channel);
 	vMMAC_GetMacAddress(&sMacAddr);
@@ -194,32 +197,16 @@ PUBLIC void AppColdStart(void)
 	DBG_vPrintf(TRUE, "bAHI_GetClkSource=%d\n", bAHI_GetClkSource());
 	DBG_vPrintf(TRUE, "u8AHI_GetSystemClkRate=%d\n", u8AHI_GetSystemClkRate());
 
-#ifdef HEARTBEAT_LED
+#if defined(HEARTBEAT_LED) || defined(ISR_LED)
 	vAHI_DioSetDirection(0x00000000, LED_PIN_BIT);		// Set DIO11 as output (LED)
-#endif	//def HEARTBEAT_LED
+#endif	//defined(HEARTBEAT_LED) || defined(ISR_LED)
 
 #ifdef XIAOMI_SMART_BUTTON
 	vAHI_DioSetPullup(~MAIN_PIN_BIT, MAIN_PIN_BIT);  /* turn all pullups on except for DIO16 which is big button input      */
 #else
 	vAHI_DioSetPullup(0xffffffff, 0x00000000);  /* turn all pullups on      */
 #endif
-#if 0
-#ifdef DBG_ENABLE
-	vAHI_UartSetLocation(UART_FOR_DEBUG, TRUE);
-	vAHI_UartTxOnly(UART_FOR_DEBUG, TRUE);
-#if 1
-	vUartInit(UART_FOR_DEBUG, BAUD_RATE, au8Uart1TxBuffer, sizeof(au8Uart1TxBuffer), NULL, 0);/* uart for user interface */
-	vInitPrintf((void*)vPutC1);	
-#else
-	/* Send debug output to DBG_UART */
-	DBG_vUartInit ( UART_FOR_DEBUG, DBG_E_UART_BAUD_RATE_38400 );
-#endif
-#endif
-//	DBG_vUartInit ( UART_FOR_DEBUG, DBG_E_UART_BAUD_RATE_115200 );
-//	DBG_vPrintf(DEBUG_BAUDRATE, "\nBEN: First Trace in app_start.c->main()->Youppee\n");
-//	DBG_vPrintf(TRUE, "\nBEN: First Trace in app_start.c->main()->Youppee\n");
-//	DBG_vPrintf(1, "\nBEN: First Trace in app_start.c->main()->Youppee\n");
-#endif
+
 	vAHI_SysCtrlRegisterCallback(SysCtrl_Cb);
 	vAHI_DioInterruptEdge(0x00000000, 0x00000080);				// uint32 u32Rising , uint32 u32Falling, RXD0 is on DIO7
 	vAHI_DioInterruptEnable(0x00000080, 0x00000000);			// uint32 u32Enable, uint32 u32Disable
@@ -296,6 +283,8 @@ PUBLIC void AppColdStart(void)
 						if(chan>=11 && chan<=26){
 							g_u8Channel = chan;
 							vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
+						}else{
+							DBG_vPrintf(TRC_PC_COMMANDS, "Wrong chan=%d number (should be between 11 and 26 inclusive)\n", chan);
 						}
 					}
 					g_iWSDumpStatus = 1;
@@ -325,7 +314,12 @@ PUBLIC void AppColdStart(void)
 						if(chan>=11 && chan<=26){
 							g_u8Channel = chan;
 							vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
+							DBG_vPrintf(TRC_PC_COMMANDS, "Start chan=%d\n", chan);
+						}else{
+							DBG_vPrintf(TRC_PC_COMMANDS, "Wrong chan=%d number (should be between 11 and 26 inclusive)\n", chan);
 						}
+					}else{
+						DBG_vPrintf(TRC_PC_COMMANDS, "Start\n");
 					}
 					g_iWSDumpStatus = 1;
 					u8Channelsave = 0;
@@ -352,6 +346,9 @@ PRIVATE void vMMAC_Handler(uint32 u32Param)
 //	E_MMAC_INT_TX_COMPLETE
 //	E_MMAC_INT_RX_HEADER
 //	E_MMAC_INT_RX_COMPLETE
+#if defined(ISR_LED)
+	vAHI_DioSetOutput(0x00000000, LED_PIN_BIT);		// Set DIO11 (LED)	ON
+#endif
 	if(u32Param & E_MMAC_INT_RX_HEADER){
 		uint32_t u32CurWIdx = g_u32PHYBufRxWIdx;
 		uint32_t u32SymbolTime = u32MMAC_GetRxTime();
@@ -383,6 +380,9 @@ PRIVATE void vMMAC_Handler(uint32 u32Param)
 	}else{
 //		DBG_vPrintf(TRUE, "vMMAC_Handler(%08x)\n", u32Param);
 	}
+#if defined(ISR_LED)
+	vAHI_DioSetOutput(LED_PIN_BIT, 0x00000000);		// Set DIO11 (LED)	OFF
+#endif
 }
 
 // TODO: decode and display stack frame
@@ -437,11 +437,6 @@ PRIVATE void vPutC(uint8 u8Data)
 {
 	vUartWrite(UART_TO_PC, u8Data);
 }
-
-//PRIVATE void vPutC1(uint8 u8Data)
-//{
-//	vUartWrite(UART_FOR_DEBUG, u8Data);
-//}
 
 PRIVATE char acGetC(void)
 {
