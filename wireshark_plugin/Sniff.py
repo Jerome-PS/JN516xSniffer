@@ -23,7 +23,6 @@ def listcomports():
 				msg += "\n\t%s\t[%s]" % (port.device, port.description)
 	except:
 		msg = "Could not list com ports"
-		raise
 	return msg
 
 def main(argv):
@@ -41,6 +40,7 @@ def main(argv):
 	import platform
 	if(int(platform.python_version_tuple()[0])!=3):
 		print("WARNING this program has only been tested with Python 3!")
+		print("	The most noticeable problem is that you might not be able to quit this script by pressing CTRL-C, but that you might have to kill it from another terminal.")
 	if(platform.system()=="Windows"):
 		bIsWindows = True
 		print("Detected platform is Windows")
@@ -108,7 +108,7 @@ def main(argv):
 					wiresharkPath = winreg.QueryValue(winreg.HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\Wireshark.exe")
 				except FileNotFoundError as e:
 					print("### Error could not find wireshark in the registry but I was asked to look for it.")
-					print("\tDon't ask me to launch it using the -nws command line option")
+					print("\tAsk me to not launch it using the -nws command line option")
 					print("\tOr point me to it using the -ws PATH\\TO\\WireShark.exe command line option")
 					print("\t\t(I can also run WiresharkPortable using this method)")
 					print("ABORTING!")
