@@ -217,8 +217,9 @@ do
 		local portname = default_settings.comport
 		local channel  = default_settings.channel
 		local com = assert(io.open(portname, "w"))
-		dprint("About to send STA:" .. channel .. " on " .. portname)
-		com:write("STA:".. channel .. "\n")
+		local sta = "STA:".. channel .. ":" .. os.time()
+		dprint("About to send " .. sta)
+		com:write(sta .. "\n")
 --		dprint("About to send C:" .. channel .. " on " .. portname)
 --		com:write("C:" .. channel .. "\n")
 		com:close()

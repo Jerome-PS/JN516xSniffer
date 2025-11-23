@@ -308,6 +308,19 @@ PUBLIC void AppColdStart(void)
 							g_u8Channel = chan;
 							vMMAC_SetChannel(g_u8Channel);			//!!! TODO: check if Rx function must be called again after changing channel.
 							DBG_vPrintf(TRC_PC_COMMANDS, "Start chan=%d\n", chan);
+							if(bCharBuffer[6]==':'){
+								int char_cnt = 7;
+								int tim = 0;
+								while(bCharBuffer[char_cnt]>='0' && bCharBuffer[char_cnt]<='9'){
+									tim *= 10;
+									tim += bCharBuffer[char_cnt]-'0';
+									char_cnt++;
+								}
+								g_u32SymbolSeconds = tim;
+								g_u32Seconds = tim;
+								DBG_vPrintf(TRC_PC_COMMANDS, "time=%d\n", tim);
+							}
+							DBG_vPrintf(TRC_PC_COMMANDS, "\n");
 						}else{
 							DBG_vPrintf(TRC_PC_COMMANDS, "Wrong chan=%d number (should be between 11 and 26 inclusive)\n", chan);
 						}

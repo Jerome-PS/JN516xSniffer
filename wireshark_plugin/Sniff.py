@@ -88,7 +88,7 @@ def main(argv):
 			print('\tTry: "%s" -m pip install pywin32' % platform.sys.executable)
 			print("~~~~~~~~~~~~~~~~~~")
 			print("If you get a DLL load exception try running as an administrator")
-			print('\t"%s" scripts\pywin32_postinstall.py -install from a dir like C:\Program Files\Python36' % platform.sys.executable)
+			print('\t"%s" scripts\\pywin32_postinstall.py -install from a dir like C:\\Program Files\\Python36' % platform.sys.executable)
 			print("~~~~~~~~~~~~~~~~~~")
 			print("##################")
 			print("# Cannot proceed #")
@@ -162,7 +162,7 @@ def main(argv):
 	def rxThread():
 		while 1:
 			data = ser.read() # read one byte
-			print("rx", data)
+#			print("rx", data)
 			try:
 				if(not pipeRx.bIsOpen):
 					print("Trying to open Rx pipe (MCU >> Wireshark)")
